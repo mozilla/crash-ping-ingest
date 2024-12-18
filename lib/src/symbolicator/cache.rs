@@ -45,7 +45,7 @@ impl Cache {
         let mut live_entries: HashMap<Key, LiveEntry> = Default::default();
         for info in persisted {
             let live = state.active(info.key.clone(), info.channel);
-            live.force_reserve_space(info.size.load(Relaxed));
+            live.exists_with_space(info.size.load(Relaxed));
             live_entries.insert(info.key.clone(), live);
         }
 
@@ -189,8 +189,6 @@ impl CacheLimit {
     }
 }
 
-impl LiveEntry {}
-
 /// A token which is held to indicate that an entry may be used.
 ///
 /// When all tokens are dropped, the cache entry may be evicted.
@@ -216,7 +214,7 @@ impl LiveEntry {
 
     /// Reserve space in the cache for this entry, regardless of the cache size limit (useful for
     /// files that already exist).
-    pub fn force_reserve_space(&self, size: u64) {
+    pub fn exists_with_space(&self, size: u64) {
         if let Some(limit) = &self.inner.state.limit {
             let current = self.inner.info.size.load(Relaxed);
             if size < current {
@@ -226,6 +224,7 @@ impl LiveEntry {
             }
         }
         self.inner.info.size.store(size, Relaxed);
+        self.inner.info.exists.store(true, Relaxed);
     }
 
     /// Set whether the related cache entry was used.
@@ -241,6 +240,10 @@ struct LiveEntryInner {
 
 impl Drop for LiveEntryInner {
     fn drop(&mut self) {
+        if !self.info.exists.load(Relaxed) {
+            return;
+        }
+
         self.state
             .add_inactive(unsafe { ManuallyDrop::take(&mut self.info) });
     }
@@ -330,11 +333,14 @@ impl std::fmt::Display for Key {
 struct Entry {
     key: Key,
     channel: Channel,
-    /// Whether this debug file was referenced by the current set of data.
-    #[serde(skip)]
-    used: AtomicBool,
     /// The size of the debug file data on disk. 0 if unknown.
     size: AtomicU64,
+    /// Whether this entry was referenced by the current set of data.
+    #[serde(skip)]
+    used: AtomicBool,
+    /// Whether this entry was populated (i.e., whether the space allocated was actually used).
+    #[serde(skip)]
+    exists: AtomicBool,
 }
 
 impl Entry {
@@ -342,8 +348,9 @@ impl Entry {
         Entry {
             key,
             channel,
-            used: false.into(),
             size: 0.into(),
+            used: false.into(),
+            exists: false.into(),
         }
     }
 }

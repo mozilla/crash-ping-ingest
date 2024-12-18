@@ -404,7 +404,7 @@ const AMAZON_ORIGIN_LENGTH: reqwest::header::HeaderName =
 const GOOGLE_CONTENT_LENGTH: reqwest::header::HeaderName =
     reqwest::header::HeaderName::from_static("x-goog-stored-content-length");
 
-const UNKNOWN_SIZE: u64 = 1_000_000_000;
+const UNKNOWN_SIZE: u64 = 50_000_000;
 
 impl FileHelper {
     fn new(config: &Config) -> anyhow::Result<(Self, cache::Cache)> {
@@ -658,7 +658,7 @@ impl FileHelper {
                     size += len;
                 }
             }
-            cache_entry.force_reserve_space(size);
+            cache_entry.exists_with_space(size);
         }
 
         let mapped = Arc::new(unsafe { memmap2::Mmap::map(&*f) }.context("failed to map file")?);

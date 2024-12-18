@@ -42,7 +42,7 @@ impl Symsrv {
             .await
             .with_context(|| format!("failed to get metadata for {}", path.display()))?
             .len();
-        cache_entry.force_reserve_space(len);
+        cache_entry.exists_with_space(len);
         Ok(path)
     }
 }
