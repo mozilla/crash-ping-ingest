@@ -1,0 +1,42 @@
+---
+task-defaults:
+  run-on-git-branches:
+    - main
+  run-on-tasks-for:
+    - cron
+    - github-push
+  worker-type: t-linux-large
+  worker:
+    docker-image: {in-tree: linux}
+    max-run-time: 36000
+    artifacts:
+      - type: file
+        name: "public/crash-ids.json.gz"
+        path: "/builds/worker/checkouts/vcs/crash-ids.json.gz"
+      - type: file
+        name: "public/processed-pings.json.gz"
+        path: "/builds/worker/checkouts/vcs/processed-pings.json.gz"
+
+tasks:
+  pings:
+    name: process-pings
+    description: "Process crash ping data."
+    scopes:
+      - secrets:get:project/mozilla/crash-ping-ingest/ci
+    routes:
+      - "index.mozilla.v2.crash-ping-ingest.latest.process-pings"
+    run:
+      using: run-task
+      cache-dotcache: true
+      cwd: '{checkout}'
+      command:
+        - bash
+        - -euo
+        - pipefail
+        - -c
+        - |
+          SECRETS=$(curl http://taskcluster/secrets/v1/secret/project/mozilla/crash-ping-ingest/ci)
+          export REDASH_API_KEY=$(echo $SECRETS | jq -r .secret.redash_api_key)
+          ./configure.py | ingester --stdin --no-progress -o processed-pings.json "cache.size_limit_gb = 50"
+          ./generate_crash_ids.py < processed-pings.json > crash-ids.json
+          gzip processed-pings.json crash-ids.json

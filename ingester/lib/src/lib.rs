@@ -16,7 +16,7 @@ mod signature;
 pub mod status;
 mod symbolicator;
 
-const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
+const APP_USER_AGENT: &str = "crash-ping-ingest/1.0";
 
 pub struct CrashPingIngest {
     pub status: Arc<Status>,
