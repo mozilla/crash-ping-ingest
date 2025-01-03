@@ -1,4 +1,6 @@
----
+transforms:
+  - local_taskgraph.transforms.daily_batches
+
 task-defaults:
   run-on-git-branches:
     - main
@@ -11,8 +13,8 @@ task-defaults:
     max-run-time: 36000
     artifacts:
       - type: file
-        name: "public/crash-ids.json.gz"
-        path: "/builds/worker/checkouts/vcs/crash-ids.json.gz"
+        name: "public/report-crash-ids.json.gz"
+        path: "/builds/worker/checkouts/vcs/report-crash-ids.json.gz"
       - type: file
         name: "public/processed-pings.json.gz"
         path: "/builds/worker/checkouts/vcs/processed-pings.json.gz"
@@ -20,7 +22,11 @@ task-defaults:
 tasks:
   pings:
     name: process-pings
-    description: "Process crash ping data."
+    description: "Process a particular day's crash ping data."
+    cron-daily-batches:
+      days: 7
+      index: "mozilla.v2.crash-ping-ingest.{date}.processed"
+      env: PING_SUBMISSION_DATE
     scopes:
       - secrets:get:project/mozilla/crash-ping-ingest/ci
     routes:
@@ -37,6 +43,12 @@ tasks:
         - |
           SECRETS=$(curl http://taskcluster/secrets/v1/secret/project/mozilla/crash-ping-ingest/ci)
           export REDASH_API_KEY=$(echo $SECRETS | jq -r .secret.redash_api_key)
-          ./configure.py | ingester --stdin --no-progress -o processed-pings.json "cache.size_limit_gb = 50"
-          ./generate_crash_ids.py < processed-pings.json > crash-ids.json
-          gzip processed-pings.json crash-ids.json
+
+          # Configure and run the ingester. We also pass some worker-specific configuration on the command-line.
+          ./date_version_config.py ${PING_SUBMISSION_DATE:-} | ingester --stdin --no-progress --output-file processed-pings.json "cache.size_limit_gb=50"
+
+          # Generate crash ids for remote settings from the output.
+          ./reports_on_demand_crash_ids.py < processed-pings.json > report-crash-ids.json
+
+          # Gzip the JSON (it compresses very well)
+          gzip processed-pings.json report-crash-ids.json

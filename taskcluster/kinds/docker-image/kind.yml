@@ -1,4 +1,3 @@
----
 loader: taskgraph.loader.transform:loader
 
 transforms:
