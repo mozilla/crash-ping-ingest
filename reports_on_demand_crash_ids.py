@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-# Ingest crash information from stdin, select crash ids to use, and output to stdout.
+# Ingest crash information from json files on the command line, select crash
+# ids to use, and output to stdout.
 
 from collections import Counter
 import hashlib
 import requests
 from urllib.parse import urlencode
 
-UserAgent = "crash-ping-ingest/1.0 generate_crash_ids"
+UserAgent = "crash-ping-ingest/1.0 reports_on_demand_crash_ids"
 
 # For each of the top signatures by client crash volume:
 IdsForMostCommon = 10
@@ -107,6 +108,12 @@ def top_crasher_ids(processed):
 
 
 if __name__ == "__main__":
+  import gzip
   import json
   import sys
-  json.dump(top_crasher_ids(json.load(sys.stdin)), sys.stdout)
+
+  processed = []
+  for file in sys.argv[1:]:
+    processed += json.load(gzip.open(file, 'r') if file.endswith(".gz") else open(file))
+
+  json.dump(top_crasher_ids(processed), sys.stdout)

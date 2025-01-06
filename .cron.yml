@@ -1,0 +1,9 @@
+---
+jobs:
+  - name: daily-update
+    job:
+      type: decision-task
+      treeherder-symbol: crash-ping-ingest
+      target-tasks-method: default
+    when:
+      - { hour: 2, minute: 0 }
