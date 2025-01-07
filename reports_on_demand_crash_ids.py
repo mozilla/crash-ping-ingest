@@ -2,6 +2,8 @@
 # Ingest crash information from json files on the command line, select crash
 # ids to use, and output to stdout.
 
+# TODO split up per-(channel,process), and potentially move this logic into remote-settings-ondemand-crashes.
+
 from collections import Counter
 import hashlib
 import requests

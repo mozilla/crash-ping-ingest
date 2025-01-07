@@ -60,7 +60,7 @@ tasks:
         - type: file
           name: "public/report-crash-ids.json"
           path: "/builds/worker/report-crash-ids.json"
-    scopes:
+    routes:
       - "index.mozilla.v2.crash-ping-ingest.latest.report-crash-ids"
     cron-daily-dependencies:
       - days: 7
