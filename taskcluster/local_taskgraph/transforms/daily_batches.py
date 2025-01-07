@@ -104,12 +104,12 @@ def create_daily_dependencies(config, tasks):
 
         for daily_deps in all_daily_deps:
             days = daily_deps["days"]
-            task = daily_deps["task"]
+            task_name = daily_deps["task"]
             artifacts = daily_deps.get("artifacts", [])
             for preceding in range(-days, 0):
-                key = f"create-daily-dependency-{task}{preceding}"
-                deps[key] = f"{task}{preceding}"
-                fetches[key] = [{"artifact": artifact, "extract": False, "dest": f"cron-daily-dependencies/{task}{preceding}"} for artifact in artifacts]
+                key = f"create-daily-dependency-{task_name}{preceding}"
+                deps[key] = f"{task_name}{preceding}"
+                fetches[key] = [{"artifact": artifact, "extract": False, "dest": f"cron-daily-dependencies/{task_name}{preceding}"} for artifact in artifacts]
 
         yield task
 
