@@ -13,9 +13,9 @@ and reads the `REDASH_API_KEY` environment variable to output configuration for 
 can be piped in stdin).
 
 [reports_on_demand_crash_ids.py](./reports_on_demand_crash_ids.py) reads processed ping output from
-the ingester in stdin and will choose crash ids to be sent through Remote Settings to get more
-reports for particular signatures. It checks Socorro to determine whether particular signatures need
-reports or not.
+the ingester as file arguments and will choose crash ids to be sent through Remote Settings to get
+more reports for particular signatures. It checks Socorro to determine whether particular signatures
+need reports or not.
 
 ## Taskcluster
 
