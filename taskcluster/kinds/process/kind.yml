@@ -29,6 +29,9 @@ tasks:
           path: "/builds/worker/checkouts/vcs/processed-pings.json.gz"
     scopes:
       - secrets:get:project/mozilla/crash-ping-ingest/ci
+    run-on-tasks-for:
+      - cron
+      - action
     cron-daily-batches:
       days: 7
       index: "mozilla.v2.crash-ping-ingest.{date}.processed"

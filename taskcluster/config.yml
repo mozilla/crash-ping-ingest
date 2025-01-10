@@ -3,6 +3,7 @@ trust-domain: "mozilla"
 task-priority: low
 
 taskgraph:
+  register: 'local_taskgraph:register'
   cached-task-prefix: "mozilla.v2.crash-ping-ingest"
   repositories:
     crash_ping_ingest:
