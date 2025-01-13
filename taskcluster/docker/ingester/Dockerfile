@@ -1,5 +1,5 @@
 # Build the ingester in a separate stage
-FROM rustlang/rust:stable AS builder
+FROM rust:1.84 AS builder
 WORKDIR /workdir
 ENV CARGO_HOME=/workdir/.cargo
 # %include ingester
