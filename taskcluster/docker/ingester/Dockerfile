@@ -30,7 +30,7 @@ RUN apk add --no-cache python3 py3-pip && \
 COPY --from=builder /workdir/target/release/ingester /usr/local/bin
 
 # Setup other dependencies
-RUN apk add bash coreutils gzip jq
+RUN apk add bash coreutils git gzip jq
 
 # %include-run-task
 
