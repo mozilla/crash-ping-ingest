@@ -23,4 +23,5 @@ The taskcluster tasks are configured such that, when started as a cron job, ping
 for any days in the past 7 days which don't yet have processed data. The goal is to have ingested
 data for as much of history as possible, however we allow a 7-day buffer in case the CI is broken
 (from internal or external factors), with the assumption that it will be repaired within that
-window. If specific data is missing, the task can always be manually run.
+window. If specific data is missing, the task can be manually run: there is an action on the task
+group to manually run for a given date).
