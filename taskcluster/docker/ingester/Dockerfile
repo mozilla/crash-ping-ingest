@@ -1,9 +1,10 @@
 # Build the ingester in a separate stage
-FROM rust:1.84 AS builder
+FROM rust:1.84-alpine AS builder
 WORKDIR /workdir
 ENV CARGO_HOME=/workdir/.cargo
 # %include ingester
 COPY topsrcdir/ingester/ ./
+RUN apk update && apk add --no-cache gcc libressl-dev musl-dev pkgconfig
 RUN cargo build --release
 
 # Start the main image
