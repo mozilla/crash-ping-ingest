@@ -20,7 +20,7 @@ tasks:
     worker:
       # These tasks should take under an hour, however just in case we will
       # give more run time.
-      max-run-time: 14400 # 4 hours
+      max-run-time: 28800 # 8 hours
       artifacts:
         - type: file
           name: "public/processed-pings.json.gz"
@@ -44,6 +44,7 @@ tasks:
         - |
           SECRETS=$(curl http://taskcluster/secrets/v1/secret/project/mozilla/crash-ping-ingest/ci)
           export REDASH_API_KEY=$(echo $SECRETS | jq -r .secret.redash_api_key)
+          export RUST_LOG=info
 
           # Configure and run the ingester. We also pass some worker-specific configuration on the command-line.
           ./date_version_config.py ${PING_SUBMISSION_DATE:-} | ingester --stdin --no-progress --output-file processed-pings.json "cache.size_limit_gb=50"
