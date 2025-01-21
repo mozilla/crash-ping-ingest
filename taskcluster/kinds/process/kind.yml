@@ -20,7 +20,7 @@ tasks:
     worker:
       # These tasks should take under an hour, however just in case we will
       # give more run time.
-      max-run-time: 28800 # 8 hours
+      max-run-time: 14400 # 4 hours
       artifacts:
         - type: file
           name: "public/processed-pings.json.gz"
