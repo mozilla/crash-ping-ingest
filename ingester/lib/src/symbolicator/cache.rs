@@ -240,10 +240,6 @@ struct LiveEntryInner {
 
 impl Drop for LiveEntryInner {
     fn drop(&mut self) {
-        if !self.info.exists.load(Relaxed) {
-            return;
-        }
-
         self.state
             .add_inactive(unsafe { ManuallyDrop::take(&mut self.info) });
     }
@@ -261,15 +257,19 @@ impl State {
         loop {
             let to_evict = self.inactive.lock().ok().and_then(|mut bh| bh.pop());
             if let Some(entry) = to_evict {
-                let size = entry.size.load(Relaxed);
                 log::debug!("evicting {}", entry.key);
-                remove(entry.key);
-                if let Some(limit) = &self.limit {
-                    limit.return_space(size);
-                }
+                self.remove_entry(entry, remove);
                 return;
             }
             self.inactive_change.notified().await;
+        }
+    }
+
+    fn remove_entry<F: FnOnce(Key)>(&self, entry: Entry, remove: F) {
+        let size = entry.size.load(Relaxed);
+        remove(entry.key);
+        if let Some(limit) = &self.limit {
+            limit.return_space(size);
         }
     }
 
@@ -283,6 +283,12 @@ impl State {
     }
 
     fn add_inactive(&self, info: Entry) {
+        if !info.exists.load(Relaxed) {
+            // Return space without queueing the entry for eviction (there's no reason to keep it
+            // around).
+            self.remove_entry(info, |_| ());
+            return;
+        }
         if let Ok(mut guard) = self.inactive.lock() {
             guard.push(info);
         }

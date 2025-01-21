@@ -22,6 +22,8 @@ mod symsrv;
 /// We do this roundabout approach rather than using a full blocking API because some functions are
 /// only async (like those in symsrv) and it's a bit cleaner and more semantically friendly to
 /// bracket the necessary code with a function.
+// Not currently used.
+#[allow(unused)]
 async fn file_download<'a, F>(future: F) -> F::Output
 where
     F: std::future::Future + Send + 'a,
@@ -837,14 +839,17 @@ mod json {
         #[serde(alias = "baseAddress")]
         pub base_address: Option<Cow<'a, str>>,
         #[serde(alias = "endAddress")]
+        #[allow(unused)]
         pub end_address: Option<Cow<'a, str>>,
         pub filename: Option<Cow<'a, str>>,
         #[serde(alias = "codeId")]
+        #[allow(unused)]
         pub code_id: Option<Cow<'a, str>>,
         #[serde(alias = "debugFile")]
         pub debug_file: Option<Cow<'a, str>>,
         #[serde(alias = "debugId")]
         pub debug_id: Option<Cow<'a, str>>,
+        #[allow(unused)]
         pub version: Option<Cow<'a, str>>,
     }
 
@@ -859,6 +864,7 @@ mod json {
         pub ip: Cow<'a, str>,
         #[serde(alias = "moduleIndex")]
         pub module_index: Option<usize>,
+        #[allow(unused)]
         pub trust: Cow<'a, str>,
     }
 }

@@ -33,6 +33,10 @@ impl CrashPingIngest {
         let CrashPingIngest { status, config } = self;
 
         log::info!("configuration: {config:#?}");
+        log::info!(
+            "{} redash queries generated",
+            config.redash.query_parameter_sets().count()
+        );
 
         log::debug!(
             "expanded queries: {:#?}",
@@ -165,6 +169,12 @@ impl CrashPingIngest {
                     aborts.into_iter().for_each(|a| a.abort());
                 });
             }
+
+            log::info!(
+                "processing {} pings (symbolicating {})",
+                status.pings.total_count(),
+                status.pings.symbolicating_count()
+            );
 
             // Ignore cancelled tasks
             let results = try_join_all(results.into_iter().map(|join_handle| {
