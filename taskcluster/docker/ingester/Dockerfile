@@ -41,6 +41,7 @@ ENV SHELL=/bin/ash \
 
 VOLUME /builds/worker/checkouts
 VOLUME /builds/worker/.cache
+WORKDIR /builds/worker
 
 # Set a default command useful for debugging
 CMD ["/bin/ash"]
