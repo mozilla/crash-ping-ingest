@@ -25,6 +25,8 @@ tasks:
         - type: file
           name: "public/processed-pings.json.gz"
           path: "/builds/worker/checkouts/vcs/processed-pings.json.gz"
+    attributes:
+      artifact_prefix: "public"
     scopes:
       - secrets:get:project/mozilla/crash-ping-ingest/ci
     date-tasks:
@@ -68,7 +70,7 @@ tasks:
       - days: 7
         task: process-pings
         artifacts:
-          - "public/processed-pings.json.gz"
+          - "processed-pings.json.gz"
     run:
       using: run-task
       cache-dotcache: true
