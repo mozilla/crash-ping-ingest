@@ -14,6 +14,13 @@ mod cache;
 mod symbol_maps;
 mod symsrv;
 
+// Limits to the top and bottom frames, relative to a traceback ("top" being the innermost frame).
+// The rest of the frames are omitted. MAX_TOP_FRAMES should be at least 10 for siggen to work
+// properly.
+const MAX_TOP_FRAMES: usize = 50;
+const MAX_BOTTOM_FRAMES: usize = 50;
+const MAX_FRAMES: usize = MAX_TOP_FRAMES + MAX_BOTTOM_FRAMES;
+
 /// Spawn an asynchronous file download on a dedicated thread, so that it is not starved (and won't
 /// timeout) when many other tasks are running. Since we potentially spawn tens of thousands of
 /// tasks, even if we constrain how many are running there still may be enough thrashing to delay
@@ -47,16 +54,22 @@ pub struct Symbolicator {
     symbol_manager: Arc<SymbolManager<FileHelper>>,
     symbol_maps: symbol_maps::SymbolMaps,
     cache: cache::Cache,
+    only_crashing_thread: bool,
 }
 
 impl Symbolicator {
-    pub fn new(config: &Config, status: &Arc<crate::Status>) -> anyhow::Result<Self> {
+    pub fn new(
+        config: &Config,
+        status: &Arc<crate::Status>,
+        only_crashing_thread: bool,
+    ) -> anyhow::Result<Self> {
         let (helper, cache) = FileHelper::new(config)?;
         cache.update_status(status);
         Ok(Symbolicator {
             symbol_manager: Arc::new(SymbolManager::with_helper(helper)),
             symbol_maps: Default::default(),
             cache,
+            only_crashing_thread,
         })
     }
 
@@ -74,18 +87,51 @@ impl Symbolicator {
         // Spawn a task to ensure that all calls to symbolicate are executed concurrently, which
         // avoids potential deadlock if the cache limit is reached (sequencing would introduce
         // unnecessary execution dependencies).
+        let only_crashing_thread = self.only_crashing_thread;
         tokio::spawn(async move {
             let stack_traces = serde_json::from_str::<json::StackTraces>(&stack_traces_json)?;
-            let mut threads = stack_traces
-                .threads
-                .into_iter()
-                .map(|t| {
-                    t.frames
+
+            fn thread_frames(t: json::Thread<'_>) -> Result<Vec<Frame>, ParseIntError> {
+                t.frames.into_iter().map(Frame::try_from).collect()
+            }
+
+            let mut threads = if only_crashing_thread {
+                if let Some(ind) = stack_traces.crash_thread {
+                    stack_traces
+                        .threads
                         .into_iter()
-                        .map(Frame::try_from)
-                        .collect::<Result<Vec<_>, _>>()
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+                        .nth(ind)
+                        .map(thread_frames)
+                        .into_iter()
+                        .collect::<Result<Vec<_>, _>>()?
+                } else {
+                    Default::default()
+                }
+            } else {
+                stack_traces
+                    .threads
+                    .into_iter()
+                    .map(thread_frames)
+                    .collect::<Result<Vec<_>, _>>()?
+            };
+
+            // Limit thread frames to MAX_FRAMES.
+            for t in &mut threads {
+                if t.len() > MAX_FRAMES {
+                    let to_omit = t.len() - MAX_FRAMES;
+                    t.splice(
+                        MAX_TOP_FRAMES..(MAX_TOP_FRAMES + to_omit),
+                        [Frame {
+                            ip: 0,
+                            module_index: None,
+                            info: vec![FrameInfo {
+                                omitted: Some(to_omit),
+                                ..Default::default()
+                            }],
+                        }],
+                    );
+                }
+            }
 
             let used_modules: std::collections::HashSet<usize> = threads
                 .iter()
@@ -133,14 +179,16 @@ impl Symbolicator {
                     let offset: u32 = (ping_frame.ip - module.base_address).try_into().unwrap();
                     if let Some(SyncAddressInfo {
                         frames: Some(FramesLookupResult::Available(frames)),
-                        ..
+                        symbol,
                     }) = map.lookup_sync(LookupAddress::Relative(offset))
                     {
                         ping_frame.info = frames
                             .into_iter()
                             .map(|f| FrameInfo {
-                                function: f.function,
-                                file: f.file_path.map(|p| p.display_path()),
+                                file: f.file_path.map(|p| match p.mapped_path() {
+                                    Some(mapped) => mapped.to_special_path_str(),
+                                    None => p.raw_path().to_string(),
+                                }),
                                 line: f.line_number,
                                 module: module
                                     .filename
@@ -148,25 +196,58 @@ impl Symbolicator {
                                     .or(Some(&module.debug_file))
                                     .cloned(),
                                 module_offset: Some(format!("{offset:#018x}")),
+                                function: f.function,
+                                function_offset: Some(format!("{:#018x}", offset - symbol.address)),
                                 offset: Some(format!("{:#018x}", ping_frame.ip)),
+                                omitted: None,
                             })
                             .collect();
                     }
                 }
             }
 
+            // Combine symbolicated thread frames.
+            let threads = threads
+                .into_iter()
+                .map(|t| {
+                    let mut frames: Vec<FrameInfo> = t
+                        .into_iter()
+                        .flat_map(|f| f.into_frame_info(&stack_traces.modules))
+                        .collect();
+
+                    // Limit combined frames to MAX_FRAMES again. Symbolication may have introduced
+                    // more inlined frames after the first pass. We do the first pass as an optimization to
+                    // avoid unnecessary frame lookups.
+                    if frames.len() > MAX_FRAMES {
+                        let to_omit = frames.len() - MAX_FRAMES;
+                        // If there is already an `omitted` entry, it is guaranteed to be in the
+                        // discarded range, because `into_frame_info` always produces at least one
+                        // value and we are using the same top/bottom limits (i.e., the original
+                        // `MAX_TOP_FRAMES` will expand to at least `MAX_TOP_FRAMES` here which
+                        // will not have an omitted value, and likewise for the
+                        // `MAX_BOTTOM_FRAMES`.
+                        let total_omitted: usize = frames
+                            [MAX_TOP_FRAMES..(MAX_TOP_FRAMES + to_omit)]
+                            .iter()
+                            .map(|info| info.omitted.unwrap_or(1))
+                            .sum();
+                        frames.splice(
+                            MAX_TOP_FRAMES..(MAX_TOP_FRAMES + to_omit),
+                            [FrameInfo {
+                                omitted: Some(total_omitted),
+                                ..Default::default()
+                            }],
+                        );
+                    }
+
+                    ThreadInfo { frames }
+                })
+                .collect();
+
             Ok(Symbolicated {
                 reason: stack_traces.crash_type.map(|s| s.into_owned()),
                 crashing_thread: stack_traces.crash_thread,
-                threads: threads
-                    .into_iter()
-                    .map(|t| ThreadInfo {
-                        frames: t
-                            .into_iter()
-                            .flat_map(|f| f.into_frame_info(&stack_traces.modules))
-                            .collect(),
-                    })
-                    .collect(),
+                threads,
             })
         })
         .map(|r| r.map_err(anyhow::Error::from).and_then(|r| r))
@@ -177,9 +258,10 @@ impl Symbolicator {
             symbol_manager: manager,
             cache,
             symbol_maps,
+            only_crashing_thread: _,
         } = self;
 
-        // NOTE: binding `symbol_maps: _` or using `..` above will stil keep the symbol maps in
+        // NOTE: binding `symbol_maps: _` or using `..` above will still keep the symbol maps in
         // scope until the function exits! Thus, we explicitly bind and drop it (as it holds the
         // LiveEntry values and must be dropped for eviction to work).
         drop(symbol_maps);
@@ -211,6 +293,10 @@ struct Frame {
 }
 
 impl Frame {
+    /// Return the frame info, or create a frame info with the minimal information available if no
+    /// info was populated.
+    ///
+    /// This is guaranteed to return a non-empty Vec.
     pub fn into_frame_info(self, modules: &[json::Module]) -> Vec<FrameInfo> {
         if self.info.is_empty() {
             let mut module = None;
@@ -251,12 +337,22 @@ pub struct ThreadInfo {
 
 #[derive(Debug, Default, serde::Serialize)]
 pub struct FrameInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub function: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub function_offset: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub module: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub module_offset: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub omitted: Option<usize>,
 }
 
 fn parse_hex(s: &str) -> Result<usize, ParseIntError> {

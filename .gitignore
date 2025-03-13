@@ -1,4 +1,4 @@
 __pycache__
 # Ignore locally processed outputs.
 symbolicate_cache
-*.json
+*.jsonl

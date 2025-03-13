@@ -14,7 +14,7 @@ use debugid::DebugId;
 use std::collections::{BinaryHeap, HashMap};
 use std::mem::ManuallyDrop;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering::Relaxed},
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering::Relaxed},
     Arc, Mutex,
 };
 use tokio::sync::Notify;
@@ -105,7 +105,7 @@ impl CacheEvictor {
         }
 
         tokio::select! {
-            _ = waiters_changed => false,
+            _ = waiters_changed => true,
             _ = self.state.evict(remove) => true,
         }
     }
@@ -133,14 +133,34 @@ struct CacheLimit {
 
 #[derive(Default)]
 struct WaitingForSpace {
-    has_waiters: AtomicBool,
+    waiters: AtomicUsize,
     notify: Notify,
 }
 
-impl WaitingForSpace {
+struct WaitingForSpaceWaiter<'a> {
+    inner: &'a WaitingForSpace,
+}
+
+impl<'a> WaitingForSpaceWaiter<'a> {
+    fn new(inner: &'a WaitingForSpace) -> Self {
+        inner.waiters.fetch_add(1, Relaxed);
+        WaitingForSpaceWaiter { inner }
+    }
+
     async fn wait(&self) {
-        self.has_waiters.store(true, Relaxed);
-        self.notify.notified().await;
+        self.inner.notify.notified().await;
+    }
+}
+
+impl<'a> Drop for WaitingForSpaceWaiter<'a> {
+    fn drop(&mut self) {
+        self.inner.waiters.fetch_sub(1, Relaxed);
+    }
+}
+
+impl WaitingForSpace {
+    fn waiter(&self) -> WaitingForSpaceWaiter {
+        WaitingForSpaceWaiter::new(self)
     }
 
     async fn change(&self) {
@@ -148,12 +168,11 @@ impl WaitingForSpace {
     }
 
     fn notify(&self) {
-        self.has_waiters.store(false, Relaxed);
         self.notify.notify_waiters();
     }
 
     fn has_waiters(&self) -> bool {
-        self.has_waiters.load(Relaxed)
+        self.waiters.load(Relaxed) > 0
     }
 }
 
@@ -168,6 +187,7 @@ impl CacheLimit {
 
     async fn wait_for_space(&self, amount: u64) {
         let check_amount = std::cmp::min(amount, self.limit);
+        let mut waiter = None;
         while self
             .current
             .fetch_update(Relaxed, Relaxed, |v| {
@@ -175,7 +195,10 @@ impl CacheLimit {
             })
             .is_err()
         {
-            self.waiting_for_space.wait().await;
+            waiter
+                .get_or_insert_with(|| self.waiting_for_space.waiter())
+                .wait()
+                .await;
         }
     }
 

@@ -53,7 +53,7 @@ pub struct Args {
     #[arg(short, long, value_parser = existing_path)]
     config_file: Option<PathBuf>,
 
-    /// The path to which to write the output. If unspecified, output is written to stdout.
+    /// The path to which to write the jsonl output. If unspecified, output is written to stdout.
     #[arg(short, long)]
     output_file: Option<PathBuf>,
 
@@ -141,21 +141,29 @@ fn main() -> anyhow::Result<()> {
     let config: Config = toml_config.try_into()?;
 
     let ingest = CrashPingIngest::new(config);
-    let ping_infos = {
-        let cancellation_status = ingest.status.clone();
-        ctrlc::set_handler(move || cancellation_status.cancel())
-            .expect("failed to set interrupt handler");
-        let _progress = if args.no_progress {
-            None
-        } else {
-            Progress::new(ingest.status.clone())
-        };
-        ingest.run()?
-    };
 
-    let output = args
+    let mut output = args
         .output_file
         .map(|path| std::fs::File::create(path).map(|f| Box::new(f) as Box<dyn Write>))
         .unwrap_or_else(|| Ok(Box::new(std::io::stdout())))?;
-    serde_json::to_writer(output, &ping_infos).map_err(|e| e.into())
+
+    let cancellation_status = ingest.status.clone();
+    ctrlc::set_handler(move || cancellation_status.cancel())
+        .expect("failed to set interrupt handler");
+    let _progress = if args.no_progress {
+        None
+    } else {
+        Progress::new(ingest.status.clone())
+    };
+    ingest.run(|mut ping_info| {
+        // We don't want the offset field in stack frames.
+        if let Some(stack) = &mut ping_info.stack {
+            for s in stack {
+                s.offset = None;
+            }
+        }
+        serde_json::to_writer(&mut output, &ping_info)?;
+        writeln!(&mut output)?;
+        Ok(())
+    })
 }

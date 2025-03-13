@@ -1,9 +1,5 @@
 pub use config::Config;
-use futures_util::{
-    future::{try_join_all, FutureExt},
-    stream::FuturesUnordered,
-    StreamExt,
-};
+use futures_util::{stream::FuturesUnordered, StreamExt};
 pub use status::Status;
 use std::sync::Arc;
 use symbolicator::Symbolicator;
@@ -17,6 +13,7 @@ pub mod status;
 mod symbolicator;
 
 const APP_USER_AGENT: &str = "crash-ping-ingest/1.0";
+const ONLY_SYMBOLICATE_CRASHING_THREAD: bool = true;
 
 pub struct CrashPingIngest {
     pub status: Arc<Status>,
@@ -29,7 +26,10 @@ impl CrashPingIngest {
         CrashPingIngest { status, config }
     }
 
-    pub fn run(self) -> anyhow::Result<Vec<PingInfo>> {
+    pub fn run<F: FnMut(PingInfo) -> anyhow::Result<()>>(
+        self,
+        mut output: F,
+    ) -> anyhow::Result<()> {
         let CrashPingIngest { status, config } = self;
 
         log::info!("configuration: {config:#?}");
@@ -53,7 +53,8 @@ impl CrashPingIngest {
         builder.build()?.block_on(async move {
             let mut requests = FuturesUnordered::from_iter(redash::create_requests(&config)?);
             status.queries.set_total(requests.len());
-            let symbolicator = Symbolicator::new(&config, &status)?;
+            let symbolicator =
+                Symbolicator::new(&config, &status, ONLY_SYMBOLICATE_CRASHING_THREAD)?;
             let signature_generator = signature::Generator::new(&config.signature);
 
             let mut results: Vec<JoinHandle<PingInfo>> = Default::default();
@@ -86,7 +87,6 @@ impl CrashPingIngest {
                                 status.pings.inc_symbolicating();
                             }
                             let signature_generator = signature_generator.clone();
-                            let mut parameters = query.parameters.clone();
                             let status = status.clone();
                             results.push(tokio::spawn(async move {
                                 let symbolicated = if let Some(fut) = symbolicated_frames {
@@ -116,20 +116,13 @@ impl CrashPingIngest {
                                     .map(|s| {
                                         (
                                             s.reason,
-                                            s.crashing_thread.and_then(|ind| {
-                                                s.threads.into_iter().nth(ind).map(|t| {
-                                                    t.frames
-                                                        .into_iter()
-                                                        .enumerate()
-                                                        .map(|(index, f)| StackFrame {
-                                                            index: index as u64,
-                                                            module: f.module,
-                                                            frame: f.function,
-                                                            src_url: None,
-                                                        })
-                                                        .collect()
+                                            if ONLY_SYMBOLICATE_CRASHING_THREAD {
+                                                s.threads.into_iter().next().map(|t| t.frames)
+                                            } else {
+                                                s.crashing_thread.and_then(|ind| {
+                                                    s.threads.into_iter().nth(ind).map(|t| t.frames)
                                                 })
-                                            }),
+                                            },
                                         )
                                     })
                                     .unwrap_or_default();
@@ -137,23 +130,9 @@ impl CrashPingIngest {
                                 status.pings.inc_complete();
 
                                 PingInfo {
-                                    channel: parameters.remove("channel").unwrap(),
-                                    process: parameters.remove("process_type").unwrap(),
-                                    ipc_actor: parameters
-                                        .remove("utility_actor")
-                                        .and_then(|s| (s != "NONE").then_some(s)),
-                                    clientid: row.client_id,
-                                    crashid: row.document_id,
-                                    version: row.display_version,
-                                    os: row.normalized_os,
-                                    osversion: row.normalized_os_version,
-                                    arch: row.arch,
-                                    date: row.crash_time,
-                                    reason: row.moz_crash_reason,
+                                    document_id: row.document_id,
+                                    submission_timestamp: row.submission_timestamp,
                                     crash_type,
-                                    minidump_sha256_hash: row.minidump_sha256_hash,
-                                    startup_crash: row.startup_crash,
-                                    build_id: row.build_id,
                                     signature,
                                     stack,
                                 }
@@ -176,18 +155,22 @@ impl CrashPingIngest {
                 status.pings.symbolicating_count()
             );
 
-            // Ignore cancelled tasks
-            let results = try_join_all(results.into_iter().map(|join_handle| {
-                join_handle.map(|result| match result {
-                    Err(e) if e.is_cancelled() => Ok(None),
-                    Err(e) => Err(e),
-                    Ok(v) => Ok(Some(v)),
-                })
-            }));
+            let mut results = FuturesUnordered::from_iter(results);
+            let output_results = async move {
+                while let Some(result) = results.next().await {
+                    match result {
+                        // Ignore cancelled tasks
+                        Err(e) if e.is_cancelled() => (),
+                        Err(e) => return Err(e.into()),
+                        Ok(ping_info) => output(ping_info)?,
+                    }
+                }
+                Ok(())
+            };
 
             tokio::select! {
                 _ = symbolicator.finish_tasks() => unreachable!(),
-                ping_infos = results => Ok(ping_infos?.into_iter().flatten().collect::<Vec<_>>()),
+                result = output_results => result
             }
         })
     }
@@ -195,33 +178,9 @@ impl CrashPingIngest {
 
 #[derive(Debug, serde::Serialize)]
 pub struct PingInfo {
-    pub channel: String,
-    pub process: String,
-    pub ipc_actor: Option<String>,
-    pub clientid: String,
-    pub crashid: String,
-    pub version: Option<String>,
-    pub os: Option<String>,
-    pub osversion: Option<String>,
-    pub arch: Option<String>,
-    pub date: Option<String>,
-    pub reason: Option<String>,
-    #[serde(rename = "type")]
+    pub document_id: String,
+    pub submission_timestamp: String,
     pub crash_type: Option<String>,
-    pub minidump_sha256_hash: Option<String>,
-    pub startup_crash: Option<bool>,
-    pub build_id: Option<String>,
-
-    // Derived data
     pub signature: Option<String>,
-    pub stack: Option<Vec<StackFrame>>,
-}
-
-#[derive(Debug, serde::Serialize)]
-pub struct StackFrame {
-    index: u64,
-    module: Option<String>,
-    frame: Option<String>,
-    #[serde(rename = "srcUrl")]
-    src_url: Option<String>,
+    pub stack: Option<Vec<symbolicator::FrameInfo>>,
 }

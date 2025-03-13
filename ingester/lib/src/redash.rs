@@ -59,21 +59,14 @@ struct QueryResultData {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct QueryRow {
-    pub client_id: String,
     pub document_id: String,
+    pub submission_timestamp: String,
     pub stack_traces: Option<String>,
     pub java_exception: Option<String>,
-    pub crash_time: Option<String>,
-    pub minidump_sha256_hash: Option<String>,
     pub moz_crash_reason: Option<String>,
     pub ipc_channel_error: Option<String>,
     pub oom_size: Option<u64>,
-    pub startup_crash: Option<bool>,
     pub normalized_os: Option<String>,
-    pub normalized_os_version: Option<String>,
-    pub arch: Option<String>,
-    pub display_version: Option<String>,
-    pub build_id: Option<String>,
 }
 
 #[derive(Debug)]
