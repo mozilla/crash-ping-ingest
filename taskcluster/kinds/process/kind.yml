@@ -11,68 +11,68 @@ task-defaults:
     docker-image: {in-tree: ingester}
     max-run-time: 3600 # 1 hour
 
-tasks:
-  pings:
-    name: process-pings
-    description: "Process a particular day's crash ping data."
-    # Ingest symbolication can take advantage of a lot of CPU (and disk space).
-    worker-type: t-linux-large
-    worker:
-      # These tasks should take under an hour, however just in case we will
-      # give more run time.
-      max-run-time: 14400 # 4 hours
-      artifacts:
-        - type: file
-          name: "public/processed-pings.json.gz"
-          path: "/builds/worker/checkouts/vcs/processed-pings.json.gz"
-    attributes:
-      artifact_prefix: "public"
-    scopes:
-      - secrets:get:project/mozilla/crash-ping-ingest/ci
-    date-tasks:
-      cron-days: 7
-      action-manual: true
-      index: "mozilla.v2.crash-ping-ingest.{date}.processed"
-      env: PING_SUBMISSION_DATE
-    run:
-      using: run-task
-      cache-dotcache: true
-      cwd: '{checkout}'
-      command:
-        - bash
-        - -euo
-        - pipefail
-        - -c
-        - |
-          SECRETS=$(curl http://taskcluster/secrets/v1/secret/project/mozilla/crash-ping-ingest/ci)
-          export REDASH_API_KEY=$(echo $SECRETS | jq -r .secret.redash_api_key)
-          export RUST_LOG=info
-
-          # Configure and run the ingester. We also pass some worker-specific configuration on the command-line.
-          ./date_version_config.py ${PING_SUBMISSION_DATE:-} | ingester --stdin --no-progress --output-file processed-pings.json "cache.size_limit_gb=50"
-
-          # Gzip the JSON (it compresses very well)
-          gzip processed-pings.json
-
-  report-crash-ids:
-    name: report-crash-ids
-    description: "Select crash ids for which we'd like more reports."
-    worker:
-      artifacts:
-        - type: file
-          name: "public/report-crash-ids.json"
-          path: "/builds/worker/report-crash-ids.json"
-    routes:
-      - "index.mozilla.v2.crash-ping-ingest.latest.report-crash-ids"
-    run-on-tasks-for:
-      - cron
-    cron-date-dependencies:
-      - days: 7
-        task: process-pings
-        artifacts:
-          - "processed-pings.json.gz"
-    run:
-      using: run-task
-      cache-dotcache: true
-      exec-with: bash
-      command: ./checkouts/vcs/reports_on_demand_crash_ids.py fetches/cron-date-dependencies/process-pings-*/processed-pings.json.gz > report-crash-ids.json
+#tasks:
+#  pings:
+#    name: process-pings
+#    description: "Process a particular day's crash ping data."
+#    # Ingest symbolication can take advantage of a lot of CPU (and disk space).
+#    worker-type: t-linux-large
+#    worker:
+#      # These tasks should take under an hour, however just in case we will
+#      # give more run time.
+#      max-run-time: 14400 # 4 hours
+#      artifacts:
+#        - type: file
+#          name: "public/processed-pings.json.gz"
+#          path: "/builds/worker/checkouts/vcs/processed-pings.json.gz"
+#    attributes:
+#      artifact_prefix: "public"
+#    scopes:
+#      - secrets:get:project/mozilla/crash-ping-ingest/ci
+#    date-tasks:
+#      cron-days: 7
+#      action-manual: true
+#      index: "mozilla.v2.crash-ping-ingest.{date}.processed"
+#      env: PING_SUBMISSION_DATE
+#    run:
+#      using: run-task
+#      cache-dotcache: true
+#      cwd: '{checkout}'
+#      command:
+#        - bash
+#        - -euo
+#        - pipefail
+#        - -c
+#        - |
+#          SECRETS=$(curl http://taskcluster/secrets/v1/secret/project/mozilla/crash-ping-ingest/ci)
+#          export REDASH_API_KEY=$(echo $SECRETS | jq -r .secret.redash_api_key)
+#          export RUST_LOG=info
+#
+#          # Configure and run the ingester. We also pass some worker-specific configuration on the command-line.
+#          ./date_version_config.py ${PING_SUBMISSION_DATE:-} | ingester --stdin --no-progress --output-file processed-pings.json "cache.size_limit_gb=50"
+#
+#          # Gzip the JSON (it compresses very well)
+#          gzip processed-pings.json
+#
+#  report-crash-ids:
+#    name: report-crash-ids
+#    description: "Select crash ids for which we'd like more reports."
+#    worker:
+#      artifacts:
+#        - type: file
+#          name: "public/report-crash-ids.json"
+#          path: "/builds/worker/report-crash-ids.json"
+#    routes:
+#      - "index.mozilla.v2.crash-ping-ingest.latest.report-crash-ids"
+#    run-on-tasks-for:
+#      - cron
+#    cron-date-dependencies:
+#      - days: 7
+#        task: process-pings
+#        artifacts:
+#          - "processed-pings.json.gz"
+#    run:
+#      using: run-task
+#      cache-dotcache: true
+#      exec-with: bash
+#      command: ./checkouts/vcs/reports_on_demand_crash_ids.py fetches/cron-date-dependencies/process-pings-*/processed-pings.json.gz > report-crash-ids.json
