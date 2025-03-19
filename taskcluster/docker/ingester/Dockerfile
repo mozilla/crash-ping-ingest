@@ -40,7 +40,8 @@ ENV SHELL=/bin/ash \
     PATH=/builds/worker/.local/bin:$PATH
 
 VOLUME /builds/worker/checkouts
-VOLUME /builds/worker/.cache
+VOLUME /builds/worker/.task-cache/cargo
+VOLUME /builds/worker/.task-cache/pip
 WORKDIR /builds/worker
 
 # Set a default command useful for debugging
