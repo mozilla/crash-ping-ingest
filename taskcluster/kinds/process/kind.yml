@@ -32,7 +32,7 @@ tasks:
       env: PING_SUBMISSION_DATE
     run:
       using: run-task
-      cache-dotcache: true
+      use-caches: [checkout, cargo, pip]
       cwd: '{checkout}'
       command:
         - bash
