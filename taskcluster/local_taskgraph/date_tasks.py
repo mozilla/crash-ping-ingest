@@ -21,7 +21,8 @@ TASK_SCHEMA = Schema({
         "action-manual": bool,
         # The index path to use, both to index the results and to avoid running
         # a task when one has already run. The `{date}` string will be
-        # interpolated with the date.
+        # interpolated with the date, where `-`s will be replaced with `.`
+        # (e.g., 2025-01-02 will become `2025.01.02`).
         "index": str,
         # An environment variable name which (if specified) will be set with the date.
         "env": str,
@@ -85,14 +86,13 @@ def create_date_tasks(config, tasks):
 
         def set_task_date(task, datestr, add_index = True, index_search = False):
             if index is not None and add_index:
-                task_index = index.format(date=datestr)
+                task_index = index.format(date=datestr.replace("-", "."))
                 if index_search:
                     task.setdefault("optimization", {}).setdefault("index-search", []).append(task_index)
                 task.setdefault("routes", []).append(f"index.{task_index}")
 
             if env is not None:
                 task["worker"].setdefault("env", {})[env] = datestr
-
 
         if config.params["tasks_for"] == "cron" and days is not None:
             # We only create tasks for complete days: `days` will immediately
