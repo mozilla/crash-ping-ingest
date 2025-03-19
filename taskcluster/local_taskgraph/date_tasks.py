@@ -2,8 +2,7 @@ from copy import deepcopy
 import datetime
 from urllib.request import Request, urlopen
 from taskgraph.actions.registry import register_callback_action
-from taskgraph.create import create_tasks
-from taskgraph.generator import TaskGraphGenerator
+from taskgraph.decision import taskgraph_decision
 from taskgraph.parameters import extend_parameters_schema, Parameters
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util.schema import Schema
@@ -41,8 +40,10 @@ TASK_SCHEMA = Schema({
     }],
 }, extra=ALLOW_EXTRA)
 
+PROCESS_PINGS_MANUAL_PARAM = "process_pings_manual"
+
 PARAMETERS_SCHEMA = {
-    "process_pings_manual": {
+    PROCESS_PINGS_MANUAL_PARAM: {
         Required("date"): str,
         "index": bool
     }
@@ -106,8 +107,8 @@ def create_date_tasks(config, tasks):
 
         if (config.params["tasks_for"] == "action"
             and manual is not None
-            and "process_pings_manual" in config.params):
-            manual_cfg = config.params["process_pings_manual"]
+            and PROCESS_PINGS_MANUAL_PARAM in config.params):
+            manual_cfg = config.params[PROCESS_PINGS_MANUAL_PARAM]
             new_task = deepcopy(task)
             new_task["name"] += "-manual"
             set_task_date(new_task, manual_cfg["date"], add_index = manual_cfg.get("index", True))
@@ -173,12 +174,7 @@ extend_parameters_schema(PARAMETERS_SCHEMA)
     }
 )
 def process_pings_manual_action(parameters, graph_config, input, task_group_id, task_id):
-    parameters = Parameters(**parameters, process_pings_manual = input)
-    generator = TaskGraphGenerator(None, parameters)
-    create_tasks(
-        generator.graph_config,
-        generator.morphed_task_graph,
-        generator.label_to_taskid,
-        generator.parameters,
-        task_group_id
-    )
+    parameters = dict(parameters)
+    parameters["tasks_for"] = "action"
+    parameters[PROCESS_PINGS_MANUAL_PARAM] = input
+    taskgraph_decision({"root": graph_config.root_dir}, Parameters(**parameters))
