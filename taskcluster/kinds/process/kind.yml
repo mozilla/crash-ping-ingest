@@ -43,7 +43,7 @@ tasks:
           SECRETS=$(curl http://taskcluster/secrets/v1/secret/project/mozilla/crash-ping-ingest/ci)
           export REDASH_API_KEY=$(echo $SECRETS | jq -r .secret.redash_api_key)
           export GOOGLE_APPLICATION_CREDENTIALS=credentials.json
-          jq -r .secret.google_application_credentials > $GOOGLE_APPLICATION_CREDENTIALS
+          echo $SECRETS | jq -r .secret.google_application_credentials > $GOOGLE_APPLICATION_CREDENTIALS
 
           export RUST_LOG=info
 
