@@ -175,7 +175,7 @@ extend_parameters_schema(PARAMETERS_SCHEMA)
                 'default': 'true',
             },
         },
-        'required': ['date'],
+        'required': ['dates'],
         'additionalProperties': False,
     }
 )
