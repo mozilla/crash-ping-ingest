@@ -89,7 +89,16 @@ impl Symbolicator {
         // unnecessary execution dependencies).
         let only_crashing_thread = self.only_crashing_thread;
         tokio::spawn(async move {
-            let stack_traces = serde_json::from_str::<json::StackTraces>(&stack_traces_json)?;
+            let mut stack_traces = serde_json::from_str::<json::StackTraces>(&stack_traces_json)?;
+
+            // Temporary workaround for https://bugzilla.mozilla.org/show_bug.cgi?id=1954819
+            // Firefox only configures minidump-analyzer to include all threads for crashes
+            // identified as hangs. They are far less common than normal crashes, for which only
+            // the crashing thread is included (and the crash_thread index is 0). Default to 0 here
+            // to be able to process the old data with potentially missing `crash_thread` values.
+            if stack_traces.crash_thread.is_none() {
+                stack_traces.crash_thread = Some(0);
+            }
 
             fn thread_frames(t: json::Thread<'_>) -> Result<Vec<Frame>, ParseIntError> {
                 t.frames.into_iter().map(Frame::try_from).collect()
