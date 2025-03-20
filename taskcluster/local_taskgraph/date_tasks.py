@@ -114,7 +114,7 @@ def create_date_tasks(config, tasks):
             for date in dates:
                 new_task = deepcopy(task)
                 new_task["name"] += "-manual-" + date
-                set_task_date(new_task, manual_cfg["date"], add_index = add_index)
+                set_task_date(new_task, date, add_index = add_index)
                 yield new_task
 
 
