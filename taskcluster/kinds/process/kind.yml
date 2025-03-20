@@ -10,6 +10,8 @@ task-defaults:
     # same image for everything.
     docker-image: {in-tree: ingester}
     max-run-time: 3600 # 1 hour
+    # Retry if a task receives SIGKILL
+    retry-exit-status: [137]
 
 tasks:
   pings:
