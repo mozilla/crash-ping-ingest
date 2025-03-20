@@ -44,7 +44,7 @@ PROCESS_PINGS_MANUAL_PARAM = "process_pings_manual"
 
 PARAMETERS_SCHEMA = {
     PROCESS_PINGS_MANUAL_PARAM: {
-        Required("date"): str,
+        Required("dates"): [str],
         "index": bool
     }
 }
@@ -109,10 +109,13 @@ def create_date_tasks(config, tasks):
             and manual is not None
             and PROCESS_PINGS_MANUAL_PARAM in config.params):
             manual_cfg = config.params[PROCESS_PINGS_MANUAL_PARAM]
-            new_task = deepcopy(task)
-            new_task["name"] += "-manual"
-            set_task_date(new_task, manual_cfg["date"], add_index = manual_cfg.get("index", True))
-            yield new_task
+            dates = manual_cfg["dates"]
+            add_index = manual_cfg.get("index", True)
+            for date in dates:
+                new_task = deepcopy(task)
+                new_task["name"] += "-manual-" + date
+                set_task_date(new_task, manual_cfg["date"], add_index = add_index)
+                yield new_task
 
 
 @transforms.add
@@ -150,17 +153,20 @@ extend_parameters_schema(PARAMETERS_SCHEMA)
     name='process-pings-manual',
     title='Process Pings (Manual)',
     symbol='ppm',
-    description='Manually process pings for a given day.',
+    description='Manually process pings for the given days.',
     order=1,
     schema={
         'title': 'Manual Ping Processing Options',
         'description': 'Parameters to use for manual ping processing.',
         'properties': {
-            'date': {
-                'title': 'Date',
-                'description': 'The date for which to process crash pings.',
-                'type': 'string',
-                'format': 'date',
+            'dates': {
+                'title': 'Dates',
+                'description': 'The dates for which to process crash pings.',
+                'type': 'array',
+                'items': {
+                    'type': 'string',
+                    'format': 'date',
+                },
             },
             'index': {
                 'title': 'Index',
