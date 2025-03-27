@@ -4,12 +4,13 @@ transforms:
 task-defaults:
   run-on-git-branches:
     - main
-  worker-type: b-linux
+  # Ingest symbolication can take advantage of a lot of CPU (and disk space).
+  worker-type: t-linux-large
   worker:
     # Because all tasks rely on the ingester tasks right now, we just use the
     # same image for everything.
     docker-image: {in-tree: ingester}
-    max-run-time: 3600 # 1 hour
+    max-run-time: 14400 # 4 hours
     # Retry if a task receives SIGKILL
     retry-exit-status: [137]
 
@@ -17,12 +18,6 @@ tasks:
   pings:
     name: process-pings
     description: "Process a particular day's crash ping data and upload to bigquery."
-    # Ingest symbolication can take advantage of a lot of CPU (and disk space).
-    worker-type: t-linux-large
-    worker:
-      # These tasks should take under an hour, however just in case we will
-      # give more run time.
-      max-run-time: 14400 # 4 hours
     attributes:
       artifact_prefix: "public"
     scopes:
