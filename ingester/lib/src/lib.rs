@@ -72,6 +72,8 @@ impl CrashPingIngest {
                             .cloned()
                             .unwrap_or("unknown".into());
 
+                        let os = Arc::new(query.parameters.get("os").cloned());
+
                         for mut row in query.response_rows {
                             let symbolicated_frames =
                                 row.stack_traces.take().and_then(|stack_traces| {
@@ -88,6 +90,7 @@ impl CrashPingIngest {
                             }
                             let signature_generator = signature_generator.clone();
                             let status = status.clone();
+                            let os = os.clone();
                             results.push(tokio::spawn(async move {
                                 let symbolicated = if let Some(fut) = symbolicated_frames {
                                     let result = fut.await;
@@ -103,14 +106,16 @@ impl CrashPingIngest {
                                     None
                                 };
 
-                                let signature =
-                                    match signature_generator.generate(&symbolicated, &row).await {
-                                        Ok(s) => Some(s),
-                                        Err(e) => {
-                                            log::error!("error generating signature: {e:#}");
-                                            None
-                                        }
-                                    };
+                                let signature = match signature_generator
+                                    .generate(&symbolicated, &row, os.as_deref())
+                                    .await
+                                {
+                                    Ok(s) => Some(s),
+                                    Err(e) => {
+                                        log::error!("error generating signature: {e:#}");
+                                        None
+                                    }
+                                };
 
                                 let (crash_type, stack) = symbolicated
                                     .map(|s| {

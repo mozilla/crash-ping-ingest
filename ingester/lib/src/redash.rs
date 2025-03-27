@@ -66,7 +66,6 @@ pub struct QueryRow {
     pub moz_crash_reason: Option<String>,
     pub ipc_channel_error: Option<String>,
     pub oom_size: Option<u64>,
-    pub normalized_os: Option<String>,
 }
 
 #[derive(Debug)]

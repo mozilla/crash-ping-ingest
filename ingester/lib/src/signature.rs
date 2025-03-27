@@ -35,6 +35,7 @@ impl Generator {
         &self,
         symbolicated: &Option<Symbolicated>,
         ping_info: &QueryRow,
+        os: Option<&str>,
     ) -> anyhow::Result<String> {
         let java_exception = ping_info
             .java_exception
@@ -47,7 +48,7 @@ impl Generator {
             oom_allocation_size: ping_info.oom_size,
             ipc_channel_error: ping_info.ipc_channel_error.as_deref(),
             moz_crash_reason: ping_info.moz_crash_reason.as_deref(),
-            os: ping_info.normalized_os.as_deref(),
+            os,
         };
 
         let input = serde_json::to_string(&input)?;

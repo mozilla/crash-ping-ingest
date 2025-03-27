@@ -17,7 +17,7 @@ max_age_seconds = 7200 # 2hr
 # build the full set of parameters.
 [redash.parameters]
 utility_actor = "NONE"
-crashcount = 10000
+crashcount = 5000
 date = "2025-01-01"
 
 # Each key of the tables in the `matrix` table will apply its parameters to a
@@ -37,6 +37,12 @@ date = "2025-01-01"
 nightly = { channel = "nightly", crashcount = 50000 }
 beta = { channel = "beta", crashcount = 50000 }
 release = { channel = "release" }
+
+[redash.matrix.os]
+android = { os = "Android" }
+linux = { os = "Linux" }
+mac = { os = "Mac" }
+windows = { os = "Windows" }
 
 [[redash.queries]]
 process_type = "main"
