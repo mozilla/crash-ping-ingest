@@ -98,7 +98,26 @@ fn toml_merge(target: &mut toml::Value, from: toml::Value) {
     *target = from;
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() {
+    match try_main() {
+        Ok(()) => (),
+        Err(e) => {
+            // Return error code 2 if a network error occurred (which might warrant a retry).
+
+            // It would be better to have explicit error types all the way up, but we'll just
+            // hackily check the error string to determine the response code.
+            let exit_code = if e.to_string().contains("error querying redash") {
+                2
+            } else {
+                1
+            };
+            eprintln!("Error: {e:?}");
+            std::process::exit(exit_code);
+        }
+    }
+}
+
+fn try_main() -> anyhow::Result<()> {
     env_logger::builder()
         .filter_level(log::LevelFilter::Warn)
         .parse_default_env()
