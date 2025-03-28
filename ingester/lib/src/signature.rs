@@ -5,8 +5,8 @@
 //! calling externally.
 
 use crate::config::Signature;
-use crate::redash::QueryRow;
 use crate::symbolicator::Symbolicated;
+use crate::InputRow;
 use std::borrow::Cow;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
@@ -34,7 +34,7 @@ impl Generator {
     pub async fn generate(
         &self,
         symbolicated: &Option<Symbolicated>,
-        ping_info: &QueryRow,
+        ping_info: &InputRow,
     ) -> anyhow::Result<String> {
         let java_exception = ping_info
             .java_exception

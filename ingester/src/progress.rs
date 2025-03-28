@@ -66,19 +66,6 @@ impl Renderer {
             self.terminal.delete_line()?;
         }
 
-        if !self.status.queries.done() {
-            let complete = self.status.queries.complete_count();
-            let total = self.status.queries.total_count();
-            write!(
-                self.terminal,
-                "Queries: {:.1}% ({}/{})",
-                complete as f64 * 100. / total as f64,
-                complete,
-                total,
-            )?;
-            self.last_lines += 1;
-        }
-
         if !self.status.pings.done() {
             if self.last_lines > 0 {
                 writeln!(self.terminal)?;

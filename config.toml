@@ -8,27 +8,3 @@ generator = "signify"
 [cache]
 directory = "symbolicate_cache"
 size_limit_gb = 20
-
-[redash]
-query_id = 106709
-max_age_seconds = 7200 # 2hr
-
-# The `parameters` table will be merged with the `queries` array entries to
-# build the full set of parameters.
-[redash.parameters]
-release_version = "133"
-date = "2025-01-01"
-
-# Each key of the tables in the `matrix` table will apply its parameters to a
-# new set of the `queries` array. The names of the intermediate tables are for
-# organizational purposes only.
-#
-# e.g. redash.matrix.A = {foo = { p1, p2 }, bar = { p3, p4 }}
-#      redash.matrix.B = {baz = { p5 }, quux = { p6 }}
-#
-# would result in 4 copies of the queries. One copy would have p1, p2, and p5
-# set, one would have p3, p4, p5, one would have p1, p2, p6, and the final one
-# would have p3, p4, p6.
-[redash.matrix]
-
-[[redash.queries]]

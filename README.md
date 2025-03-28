@@ -1,12 +1,8 @@
 # crash-ping-ingest
 
-The program in [ingester](./ingester) ingests crash pings, symbolicates them (locally), and outputs
-the resulting crash ping signatures and stacks as [jsonl][]. It does so as quickly as possible with the
-resources provisioned (you may limit threads, cache size, download count, etc).
-
-Anecdotally, on an i9 system with a 20GB symbolication cache, this takes 45 minutes to do the same
-work that takes about 7 hours with the old crash ping ingestion scripts (which use the symbolication
-server).
+The program in [ingester](./ingester) ingests crash pings as [jsonl][], symbolicates them (locally),
+and outputs the resulting crash ping signatures and stacks as [jsonl][]. It does so as quickly as
+possible with the resources provisioned (you may limit threads, cache size, download count, etc).
 
 [date_version_config.py](./date_version_config.py) figures out the channel versions for a given date
 and reads the `REDASH_API_KEY` environment variable to output configuration for the ingester (which

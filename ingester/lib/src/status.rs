@@ -6,16 +6,9 @@ use std::sync::{
 };
 
 pub struct Status {
-    pub queries: Queries,
     pub pings: Pings,
     pub cache: Option<Cache>,
     pub(crate) cancel: Cancel,
-}
-
-#[derive(Default)]
-pub struct Queries {
-    complete: AtomicUsize,
-    total: AtomicUsize,
 }
 
 #[derive(Default)]
@@ -40,7 +33,6 @@ pub(crate) struct Cancel {
 impl Status {
     pub(crate) fn new(config: &crate::Config) -> Self {
         Status {
-            queries: Default::default(),
             pings: Default::default(),
             cache: config.cache.size_limit_gb.limit_bytes().map(|total| Cache {
                 get_current: Default::default(),
@@ -66,28 +58,6 @@ impl Status {
     }
 }
 
-impl Queries {
-    pub(crate) fn inc_complete(&self) {
-        self.complete.fetch_add(1, Relaxed);
-    }
-
-    pub fn complete_count(&self) -> usize {
-        self.complete.load(Relaxed)
-    }
-
-    pub(crate) fn set_total(&self, val: usize) {
-        self.total.store(val, Relaxed)
-    }
-
-    pub fn total_count(&self) -> usize {
-        self.total.load(Relaxed)
-    }
-
-    pub fn done(&self) -> bool {
-        self.complete_count() == self.total_count()
-    }
-}
-
 impl Pings {
     pub(crate) fn inc_symbolicating(&self) {
         self.symbolicating.fetch_add(1, Relaxed);
@@ -109,8 +79,8 @@ impl Pings {
         self.complete.load(Relaxed)
     }
 
-    pub(crate) fn inc_total(&self, val: usize) {
-        self.total.fetch_add(val, Relaxed);
+    pub(crate) fn inc_total(&self) {
+        self.total.fetch_add(1, Relaxed);
     }
 
     pub fn total_count(&self) -> usize {
