@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-# Print ingester configuration with the appropriate channel versions for the
-# given date (defaulting to yesterday) to stdout.
+# Print ingester configuration with the appropriate version for the given date
+# (defaulting to yesterday) to stdout.
 #
-# This also uses the REDASH_API_KEY env variable to securly pass the secret to
+# This also uses the REDASH_API_KEY env variable to securely pass the secret to
 # the ingester.
 
 from bisect import bisect_right
@@ -16,7 +16,7 @@ USER_AGENT = "crash-ping-ingest/1.0 date_version_config"
 session = requests.Session()
 session.headers.update({'User-Agent': USER_AGENT})
 
-def get_versions(for_date):
+def get_release_version(for_date):
     req = session.get("https://product-details.mozilla.org/1.0/firefox_history_major_releases.json")
     if not req.ok:
         raise IndexError
@@ -31,7 +31,7 @@ def get_versions(for_date):
 
     i = bisect_right([date for _, date in release_versions], str(search_date))
     major = int(release_versions[i - 1][0].split('.')[0]) if i > 0 else 0
-    return { "release": major, "beta": major + 1, "nightly": major + 2 }
+    return major
 
 if __name__ == "__main__":
     import os
@@ -43,9 +43,7 @@ if __name__ == "__main__":
     print(f"redash.api_key = '{api_key}'")
 
     for_date = date.fromisoformat(sys.argv[1]) if len(sys.argv) == 2 else datetime.now(timezone.utc).date() - timedelta(days = 1)
-    versions = get_versions(for_date)
+    version = get_release_version(for_date)
 
     print(f"redash.parameters.date = '{for_date}'")
-    print(f"redash.matrix.channel.nightly.version = '{versions['nightly']}'")
-    print(f"redash.matrix.channel.beta.version = '{versions['beta']}'")
-    print(f"redash.matrix.channel.release.version = '{versions['release']}'")
+    print(f"redash.parameters.release_version = '{version}'")

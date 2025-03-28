@@ -76,12 +76,12 @@ impl Symbolicator {
     pub fn symbolicate(
         &self,
         stack_traces_json: String,
-        channel: String,
+        channel: &str,
     ) -> impl std::future::Future<Output = anyhow::Result<Symbolicated>> {
         let symbol_map_getter = self.symbol_maps.getter(
             self.symbol_manager.clone(),
             &self.cache,
-            cache::Channel::from(channel.as_str()),
+            cache::Channel::from(channel),
         );
 
         // Spawn a task to ensure that all calls to symbolicate are executed concurrently, which

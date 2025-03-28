@@ -10,14 +10,13 @@ directory = "symbolicate_cache"
 size_limit_gb = 20
 
 [redash]
-query_id = 104407
+query_id = 106709
 max_age_seconds = 7200 # 2hr
 
 # The `parameters` table will be merged with the `queries` array entries to
 # build the full set of parameters.
 [redash.parameters]
-utility_actor = "NONE"
-crashcount = 5000
+release_version = "133"
 date = "2025-01-01"
 
 # Each key of the tables in the `matrix` table will apply its parameters to a
@@ -32,64 +31,4 @@ date = "2025-01-01"
 # would have p3, p4, p6.
 [redash.matrix]
 
-[redash.matrix.channel]
-# Set very high crashcounts for nightly and beta, to essentially always process all pings for these channels.
-nightly = { channel = "nightly", crashcount = 50000 }
-beta = { channel = "beta", crashcount = 50000 }
-release = { channel = "release" }
-
-[redash.matrix.os]
-android = { os = "Android" }
-linux = { os = "Linux" }
-mac = { os = "Mac" }
-windows = { os = "Windows" }
-
 [[redash.queries]]
-process_type = "main"
-
-[[redash.queries]]
-process_type = "content"
-
-[[redash.queries]]
-process_type = "gpu"
-
-[[redash.queries]]
-process_type = "rdd"
-
-[[redash.queries]]
-process_type = "socket"
-
-[[redash.queries]]
-process_type = "gmplugin"
-
-[[redash.queries]]
-process_type = "utility"
-utility_actor = "NONE"
-
-[[redash.queries]]
-process_type = "utility"
-utility_actor = "audio-decoder-generic"
-
-[[redash.queries]]
-process_type = "utility"
-utility_actor = "audio-decoder-applemedia"
-
-[[redash.queries]]
-process_type = "utility"
-utility_actor = "audio-decoder-wmf"
-
-[[redash.queries]]
-process_type = "utility"
-utility_actor = "mf-media-engine"
-
-[[redash.queries]]
-process_type = "utility"
-utility_actor = "js-oracle"
-
-[[redash.queries]]
-process_type = "utility"
-utility_actor = "windows-utils"
-
-[[redash.queries]]
-process_type = "utility"
-utility_actor = "windows-file-dialog"

@@ -66,11 +66,12 @@ pub struct QueryRow {
     pub moz_crash_reason: Option<String>,
     pub ipc_channel_error: Option<String>,
     pub oom_size: Option<u64>,
+    pub os: Option<String>,
+    pub channel: Option<String>,
 }
 
 #[derive(Debug)]
 pub struct Query {
-    pub parameters: BTreeMap<String, String>,
     pub response_rows: Vec<QueryRow>,
 }
 
@@ -101,7 +102,7 @@ pub fn create_requests(
                     .post(format!("{REDASH_URL}/api/queries/{query_id}/results"))
                     .json(&Payload {
                         max_age: config.redash.max_age_seconds,
-                        parameters: parameters.clone(),
+                        parameters,
                     })
                     .send()
                     .await;
@@ -112,7 +113,6 @@ pub fn create_requests(
                     match response.json().await? {
                         ApiResult::QueryResult { data } => {
                             return Ok(Query {
-                                parameters,
                                 response_rows: data.rows,
                             });
                         }

@@ -63,20 +63,16 @@ impl CrashPingIngest {
                 status.queries.inc_complete();
                 status.pings.inc_total(query.response_rows.len());
 
-                let channel = query
-                    .parameters
-                    .get("channel")
-                    .cloned()
-                    .unwrap_or("unknown".into());
-
-                let os = Arc::new(query.parameters.get("os").cloned());
-
                 for mut row in query.response_rows {
                     let symbolicated_frames = row.stack_traces.take().and_then(|stack_traces| {
                         // Rather than adding an `Option` to the already complex
                         // `symbolicate` method, just check for a "null" value here.
-                        (stack_traces != "null")
-                            .then(|| symbolicator.symbolicate(stack_traces, channel.clone()))
+                        (stack_traces != "null").then(|| {
+                            symbolicator.symbolicate(
+                                stack_traces,
+                                row.channel.as_deref().unwrap_or("unknown"),
+                            )
+                        })
                     });
                     if symbolicated_frames.is_some() {
                         // Increment the status here to better represent the work to be
@@ -85,7 +81,6 @@ impl CrashPingIngest {
                     }
                     let signature_generator = signature_generator.clone();
                     let status = status.clone();
-                    let os = os.clone();
                     results.push(tokio::spawn(async move {
                         let symbolicated = if let Some(fut) = symbolicated_frames {
                             let result = fut.await;
@@ -101,16 +96,14 @@ impl CrashPingIngest {
                             None
                         };
 
-                        let signature = match signature_generator
-                            .generate(&symbolicated, &row, os.as_deref())
-                            .await
-                        {
-                            Ok(s) => Some(s),
-                            Err(e) => {
-                                log::error!("error generating signature: {e:#}");
-                                None
-                            }
-                        };
+                        let signature =
+                            match signature_generator.generate(&symbolicated, &row).await {
+                                Ok(s) => Some(s),
+                                Err(e) => {
+                                    log::error!("error generating signature: {e:#}");
+                                    None
+                                }
+                            };
 
                         let (crash_type, stack) = symbolicated
                             .map(|s| {
