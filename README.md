@@ -4,13 +4,14 @@ The program in [ingester](./ingester) ingests crash pings as [jsonl][], symbolic
 and outputs the resulting crash ping signatures and stacks as [jsonl][]. It does so as quickly as
 possible with the resources provisioned (you may limit threads, cache size, download count, etc).
 
-[date_version_config.py](./date_version_config.py) figures out the channel versions for a given date
-and reads the `REDASH_API_KEY` environment variable to output configuration for the ingester (which
-can be piped in stdin).
+[download.py](./download.py) figures out the channel versions for a given date and downloads data
+from bigquery.
 
 [upload.py](./upload.py) uploads the output of the ingester (whether through stdin or a file) to
-bigquery tables (you must set up credentials through `GOOGLE_APPLICATION_CREDENTIALS` or other
-means).
+bigquery tables.
+
+Both `download.py` and `upload.py` require you to set up credentials through
+`GOOGLE_APPLICATION_CREDENTIALS` or other means.
 
 ## Taskcluster
 
