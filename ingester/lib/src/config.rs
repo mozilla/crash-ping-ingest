@@ -7,6 +7,8 @@ pub struct Config {
     pub worker_threads: WorkerThreads,
     pub cache: Cache,
     pub signature: Signature,
+    #[serde(default)]
+    pub keep_going: bool,
 }
 
 #[derive(Debug, Deserialize)]

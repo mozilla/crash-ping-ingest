@@ -3,6 +3,7 @@
 //! too long), which would prevent cache eviction.
 
 use super::{cache, FileHelper, Location};
+use anyhow::Context;
 use futures_util::{
     future::{FutureExt, Shared},
     stream::FuturesUnordered,
@@ -26,12 +27,14 @@ pub struct SymbolMapGetter {
 
 pub(super) type LoadedSymbolMap = Arc<SymbolMap<FileHelper>>;
 
+pub(super) type SymbolMapError = Arc<dyn std::error::Error + Send + Sync + 'static>;
+
 struct LoadSymbolMap {
-    task_handle: JoinHandle<Option<LoadedSymbolMap>>,
+    task_handle: JoinHandle<anyhow::Result<LoadedSymbolMap>>,
 }
 
 impl std::future::Future for LoadSymbolMap {
-    type Output = Option<LoadedSymbolMap>;
+    type Output = Result<LoadedSymbolMap, SymbolMapError>;
 
     fn poll(
         self: std::pin::Pin<&mut Self>,
@@ -41,12 +44,10 @@ impl std::future::Future for LoadSymbolMap {
         // This is a wrapper over the JoinHandle and will not move.
         match unsafe { self.map_unchecked_mut(|this| &mut this.task_handle) }.poll(cx) {
             std::task::Poll::Pending => std::task::Poll::Pending,
-            std::task::Poll::Ready(Err(e)) => {
-                log::error!("task error: {e}");
-                std::task::Poll::Ready(None)
-            }
+            std::task::Poll::Ready(Err(e)) => std::task::Poll::Ready(Err(e.into())),
             std::task::Poll::Ready(Ok(r)) => std::task::Poll::Ready(r),
         }
+        .map_err(|e| Arc::from(Box::from(e)))
     }
 }
 
@@ -70,7 +71,9 @@ impl SymbolMapGetter {
     pub fn get_symbol_maps<Extra>(
         self,
         keys: Vec<(Extra, cache::Key)>,
-    ) -> FuturesUnordered<impl std::future::Future<Output = (Extra, Option<LoadedSymbolMap>)>> {
+    ) -> FuturesUnordered<
+        impl std::future::Future<Output = (Extra, Result<LoadedSymbolMap, SymbolMapError>)>,
+    > {
         keys.into_iter()
             .map(|(extra, key)| self.get(key).map(move |map| (extra, map)))
             .collect()
@@ -90,19 +93,14 @@ impl SymbolMapGetter {
                 };
                 LoadSymbolMap {
                     task_handle: tokio::spawn(async move {
-                        let result = manager
+                        // There's no need to explicitly hold the LiveEntry with the returned
+                        // SymbolMap, because it stores the Location (including the LiveEntry)
+                        // itself.
+                        manager
                             .load_symbol_map_from_location(location.clone(), None)
-                            .await;
-                        match result {
-                            Err(e) => {
-                                log::info!("failed to load symbol map for {location}: {e}");
-                                None
-                            }
-                            // There's no need to explicitly hold the LiveEntry with the returned
-                            // SymbolMap, because it stores the Location (including the LiveEntry)
-                            // itself.
-                            Ok(map) => Some(Arc::new(map)),
-                        }
+                            .await
+                            .map(Arc::new)
+                            .with_context(|| format!("failed to load symbol map for {location}"))
                     }),
                 }
                 .shared()

@@ -1,3 +1,4 @@
+use anyhow::Context;
 pub use config::Config;
 use futures_util::{stream::FuturesUnordered, StreamExt};
 pub use status::Status;
@@ -35,13 +36,23 @@ where
             output,
         }
     }
-}
 
-impl<I, O> CrashPingIngest<I, O>
-where
-    I: Iterator<Item = anyhow::Result<InputRow>>,
-    O: FnMut(PingInfo) -> anyhow::Result<()>,
-{
+    fn error_handler<T, E: std::fmt::Display>(
+        keep_going: bool,
+    ) -> fn(Result<T, E>) -> Result<Option<T>, E> {
+        if keep_going {
+            |result| match result {
+                Err(e) => {
+                    log::error!("{e:#}");
+                    Ok(None)
+                }
+                Ok(v) => Ok(Some(v)),
+            }
+        } else {
+            |result| result.map(Some)
+        }
+    }
+
     pub fn run(self) -> anyhow::Result<()> {
         let CrashPingIngest {
             status,
@@ -64,7 +75,7 @@ where
                 Symbolicator::new(&config, &status, ONLY_SYMBOLICATE_CRASHING_THREAD)?;
             let signature_generator = signature::Generator::new(&config.signature);
 
-            let mut results: Vec<JoinHandle<PingInfo>> = Default::default();
+            let mut results: Vec<JoinHandle<anyhow::Result<PingInfo>>> = Default::default();
 
             while let Some(mut row) = input.next().transpose()? {
                 status.pings.inc_total();
@@ -83,28 +94,25 @@ where
                 }
                 let signature_generator = signature_generator.clone();
                 let status = status.clone();
+                let symbolication_error_handler = Self::error_handler(config.keep_going);
+                let signature_error_handler = Self::error_handler(config.keep_going);
                 results.push(tokio::spawn(async move {
                     let symbolicated = if let Some(fut) = symbolicated_frames {
                         let result = fut.await;
                         status.pings.dec_symbolicating();
-                        match result {
-                            Err(e) => {
-                                log::info!("failed to get symbolicated frames: {e}");
-                                None
-                            }
-                            Ok(v) => Some(v),
-                        }
+                        symbolication_error_handler(
+                            result.context("failed to get symbolicated frames"),
+                        )?
                     } else {
                         None
                     };
 
-                    let signature = match signature_generator.generate(&symbolicated, &row).await {
-                        Ok(s) => Some(s),
-                        Err(e) => {
-                            log::error!("error generating signature: {e:#}");
-                            None
-                        }
-                    };
+                    let signature = signature_error_handler(
+                        signature_generator
+                            .generate(&symbolicated, &row)
+                            .await
+                            .context("error generating signature"),
+                    )?;
 
                     let (crash_type, stack) = symbolicated
                         .map(|s| {
@@ -123,13 +131,13 @@ where
 
                     status.pings.inc_complete();
 
-                    PingInfo {
+                    Ok(PingInfo {
                         document_id: row.document_id,
                         submission_timestamp: row.submission_timestamp,
                         crash_type,
                         signature,
                         stack,
-                    }
+                    })
                 }));
             }
 
@@ -153,7 +161,8 @@ where
                         // Ignore cancelled tasks
                         Err(e) if e.is_cancelled() => (),
                         Err(e) => return Err(e.into()),
-                        Ok(ping_info) => output(ping_info)?,
+                        Ok(Err(e)) => return Err(e),
+                        Ok(Ok(ping_info)) => output(ping_info)?,
                     }
                 }
                 Ok(())

@@ -176,9 +176,20 @@ impl Symbolicator {
                     .collect(),
             );
 
-            while let Some(((index, module), map)) = modules.next().await {
-                let Some(map) = map else {
-                    continue;
+            'modules: while let Some(((index, module), map)) = modules.next().await {
+                let map = match map {
+                    Ok(map) => map,
+                    Err(e) => {
+                        let mut eref: Option<&(dyn std::error::Error + 'static)> = Some(e.as_ref());
+                        while let Some(e) = eref {
+                            if let Some(e) = e.downcast_ref::<NotFoundError>() {
+                                log::debug!("{e}");
+                                continue 'modules;
+                            }
+                            eref = e.source();
+                        }
+                        return Err(e.into());
+                    }
                 };
                 for ping_frame in threads
                     .iter_mut()
@@ -420,6 +431,15 @@ struct Location {
     cache_entry: cache::LiveEntry,
 }
 
+impl std::fmt::Debug for Location {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(std::any::type_name::<Self>())
+            .field("key", &self.key)
+            .field("symindex", &self.symindex)
+            .finish_non_exhaustive()
+    }
+}
+
 impl std::fmt::Display for Location {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.key.fmt(f)?;
@@ -512,6 +532,90 @@ const GOOGLE_CONTENT_LENGTH: reqwest::header::HeaderName =
     reqwest::header::HeaderName::from_static("x-goog-stored-content-length");
 
 const UNKNOWN_SIZE: u64 = 50_000_000;
+
+const MAX_ATTEMPTS: u32 = 6;
+
+const RETRY_STATUS_CODES: &[reqwest::StatusCode] = &[
+    reqwest::StatusCode::TOO_MANY_REQUESTS,
+    reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+    reqwest::StatusCode::BAD_GATEWAY,
+    reqwest::StatusCode::SERVICE_UNAVAILABLE,
+    reqwest::StatusCode::GATEWAY_TIMEOUT,
+];
+
+/// Retry a request based on returned status codes.
+async fn retry_requests(builder: reqwest::RequestBuilder) -> reqwest::Result<reqwest::Response> {
+    let mut attempts: u32 = 0;
+    loop {
+        attempts += 1;
+        match builder
+            .try_clone()
+            .unwrap()
+            .send()
+            .await?
+            .error_for_status()
+        {
+            Ok(response) => return Ok(response),
+            Err(e) => {
+                if let Some(status) = e.status() {
+                    if RETRY_STATUS_CODES.contains(&status) && attempts < MAX_ATTEMPTS {
+                        tokio::time::sleep(std::time::Duration::from_millis(
+                            250 * 2u64.pow(attempts),
+                        ))
+                        .await;
+                        continue;
+                    }
+                }
+                return Err(e);
+            }
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct AggregateError(Vec<anyhow::Error>);
+
+impl AggregateError {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn push(&mut self, error: anyhow::Error) {
+        log::debug!("aggregating error: {error:#}");
+        self.0.push(error);
+    }
+
+    fn into_result<T, E>(self, otherwise: Result<T, E>) -> Result<T, E>
+    where
+        E: From<anyhow::Error> + From<Self>,
+    {
+        if self.0.is_empty() {
+            otherwise
+        } else if self.0.len() == 1 {
+            Err(self.0.into_iter().next().unwrap().into())
+        } else {
+            Err(self.into())
+        }
+    }
+}
+
+impl std::fmt::Display for AggregateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{} errors:", self.0.len())?;
+        for (i, e) in self.0.iter().enumerate() {
+            write!(f, "{i}: ")?;
+            e.fmt(f)?;
+            write!(f, "\n\n")?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for AggregateError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0.first().map(|e| e.as_ref())
+    }
+}
 
 impl FileHelper {
     fn new(config: &Config) -> anyhow::Result<(Self, cache::Cache)> {
@@ -617,42 +721,75 @@ impl FileHelper {
         &self,
         key: &cache::Key,
         cache_entry: &cache::LiveEntry,
-    ) -> anyhow::Result<Loaded> {
+    ) -> anyhow::Result<Option<Loaded>> {
         let rel_path = key.breakpad_relative_path();
         let symindex_rel_path = key.breakpad_symindex_relative_path();
 
+        let mut errors = AggregateError::new();
         for server in &self.symbol_servers.breakpad {
             match self
                 .load_breakpad_file_from_server(server, &rel_path, &symindex_rel_path, cache_entry)
                 .await
             {
                 Err(e) => {
-                    log::info!("failed to get breakpad sym file for {key} from {server}: {e:#}")
+                    if let Some(e) = e.downcast_ref::<reqwest::Error>() {
+                        if let Some(status) = e.status() {
+                            if status == reqwest::StatusCode::NOT_FOUND {
+                                continue;
+                            }
+                            // This usually occurs from a garbage debug file string
+                            if status == reqwest::StatusCode::BAD_REQUEST {
+                                log::debug!("Ignoring breakpad fetch error: {e}");
+                                continue;
+                            }
+                        }
+                    }
+                    let err = e.context(format!(
+                        "failed to get breakpad sym file for {key} from {server}"
+                    ));
+                    log::debug!("{err:#}");
+                    errors.push(err);
                 }
-                Ok(v) => return Ok(v),
+                Ok(v) => return Ok(Some(v)),
             }
         }
 
-        anyhow::bail!("couldn't find breakpad symbol file for {key}")
+        errors.into_result(Ok(None))
     }
 
     async fn load_symsrv_file(
         &self,
         key: &cache::Key,
         cache_entry: &cache::LiveEntry,
-    ) -> anyhow::Result<Loaded> {
-        let path = self.symsrv.get_file(key, cache_entry).await?;
+    ) -> anyhow::Result<Option<Loaded>> {
+        let path = match self.symsrv.get_file(key, cache_entry).await {
+            Err(e) => {
+                if let Some(e) = e.downcast_ref::<::symsrv::Error>() {
+                    if matches!(
+                        e,
+                        ::symsrv::Error::UnrecognizedExtension
+                            | ::symsrv::Error::NoExtension
+                            | ::symsrv::Error::NotFound
+                    ) {
+                        log::debug!("ignoring symsrv error: {e}");
+                        return Ok(None);
+                    }
+                }
+                return Err(e);
+            }
+            Ok(v) => v,
+        };
         let f = tokio::fs::File::open(path).await?;
         let mapped = Arc::new(unsafe { memmap2::Mmap::map(&f) }?);
 
-        Ok(Loaded {
+        Ok(Some(Loaded {
             mapped: Some(mapped),
             breakpad_symindex_mapped: None,
-        })
+        }))
     }
 
     async fn get_download_size(&self, url: &str) -> anyhow::Result<Option<u64>> {
-        let mut response = self.client.head(url).send().await?.error_for_status()?;
+        let mut response = retry_requests(self.client.head(url)).await?;
         // Some servers, like the mozilla symbol server, respond with 200 to indicate an entry
         // exists, _without_ redirecting. They still provide the `Location` header, and we want to
         // inspect the final location to get the size, so manually follow the redirect.
@@ -663,12 +800,7 @@ impl FileHelper {
                 return Ok(None);
             };
 
-            response = self
-                .client
-                .head(location_str)
-                .send()
-                .await?
-                .error_for_status()?;
+            response = retry_requests(self.client.head(location_str)).await?;
         }
 
         fn int_header<K: reqwest::header::AsHeaderName>(
@@ -710,7 +842,7 @@ impl FileHelper {
         let size = self.get_download_size(&url).await?.unwrap_or(UNKNOWN_SIZE);
         cache_entry.reserve_space(size).await;
 
-        let mut response = self.client.get(&url).send().await?.error_for_status()?;
+        let mut response = retry_requests(self.client.get(&url)).await?;
 
         let path = self.cache_dir.join("breakpad").join(rel_path);
         std::fs::create_dir_all(path.parent().unwrap())?;
@@ -832,6 +964,22 @@ impl std::ops::Deref for Contents {
     }
 }
 
+/// And error which occurs when a debug file isn't found.
+#[derive(Debug)]
+struct NotFoundError(Location);
+
+impl std::fmt::Display for NotFoundError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "could not find debug file in symbol servers for {}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for NotFoundError {}
+
 impl FileAndPathHelper for FileHelper {
     type F = Contents;
     type FL = Location;
@@ -875,24 +1023,35 @@ impl FileAndPathHelper for FileHelper {
             {
                 let loaded = 'result: {
                     let _permit = self.downloads.acquire().await;
+                    let mut errors = AggregateError::new();
+
                     match self
                         .load_breakpad_file(&location.key, &location.cache_entry)
                         .await
                     {
-                        Ok(loaded) => break 'result loaded,
-                        Err(e) => log::info!("failed to get breakpad file for {location}: {e:#}"),
+                        Ok(Some(loaded)) => break 'result loaded,
+                        Ok(None) => (),
+                        Err(e) => errors
+                            .push(e.context(format!("failed to get breakpad file for {location}"))),
                     }
+
                     match self
                         .load_symsrv_file(&location.key, &location.cache_entry)
                         .await
                     {
-                        Ok(loaded) => break 'result loaded,
-                        Err(e) => log::info!("failed to get symsrv file for {location}: {e:#}"),
+                        Ok(Some(loaded)) => break 'result loaded,
+                        Ok(None) => (),
+                        Err(e) => errors
+                            .push(e.context(format!("failed to get symsrv file for {location}"))),
                     }
-                    return Err(format!(
-                        "could not find debug file in symbol servers for {location}"
-                    )
-                    .into());
+
+                    // Important: `into_result` will not create an `anyhow::Error` out of the
+                    // `NotFoundError` here, as there's a bug where an `anyhow::Error` converted to
+                    // a `Box<std::error::Error>` can't be downcast (see
+                    // https://github.com/dtolnay/anyhow/issues/379). We check for `NotFoundError`
+                    // by downcasting, and this function has to return a `Box<std::error::Error>`,
+                    // so this is a bit fragile.
+                    return errors.into_result(Err(NotFoundError(location).into()));
                 };
                 let prev = self
                     .loaded_files
