@@ -13,6 +13,14 @@ bigquery tables.
 Both `download.py` and `upload.py` require you to set up credentials through
 `GOOGLE_APPLICATION_CREDENTIALS` or other means.
 
+## Performance
+
+While the crash ping ingestion attempts to use the allocated resources as efficiently as possible, I
+suspect that the signature generation may be a bottleneck right now (without having looked too
+closely into it). We have to launch a python program to generate each signature; it may end up a lot
+more efficient to launch a python server and send signature requests to it. Alternatively, linking
+and launching a python runtime in-process would potentially avoid doing any IPC and serialization.
+
 ## Taskcluster
 
 The taskcluster tasks are configured such that, when started as a cron job, ping data is processed
