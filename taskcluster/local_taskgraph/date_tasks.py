@@ -49,6 +49,9 @@ PARAMETERS_SCHEMA = {
     }
 }
 
+# Maximum number of tasks to run at once in the task action.
+MAX_ACTION_TASKS = 14
+
 
 # Transforms logic
 transforms = TransformSequence()
@@ -111,16 +114,27 @@ def create_date_tasks(config, tasks):
             manual_cfg = config.params[PROCESS_PINGS_MANUAL_PARAM]
             dates = manual_cfg["dates"]
             add_index = manual_cfg.get("index", True)
-            for date in dates:
+
+            deps = [None] * MAX_ACTION_TASKS
+
+            for ind, date in enumerate(dates):
                 new_task = deepcopy(task)
                 new_task["name"] += "-manual-" + date
                 set_task_date(new_task, date, add_index = add_index)
+
+                # Create arbitrary dependencies among the date tasks to avoid
+                # running too many at once (to be a good citizen to the symbol
+                # servers).
+                dep_ind = ind % len(deps);
+                if deps[dep_ind] is not None:
+                    new_task.setdefault("dependencies", {})[deps[dep_ind]] = deps[dep_ind]
+                deps[dep_ind] = "{}-{}".format(config.kind, new_task["name"])
                 yield new_task
 
 
 @transforms.add
 def create_daily_dependencies(config, tasks):
-    """Adds dependencies on tasks created by create_daily_tasks.
+    """Adds dependencies on tasks created by create_date_tasks.
 
     Only applies to `cron` jobs.
     """
