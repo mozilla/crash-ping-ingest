@@ -44,10 +44,18 @@ tasks:
 
           export RUST_LOG=info
 
+          INPUT=pings.jsonl
           OUTPUT=processed-pings.jsonl
+          DATEARG=
+          if [[ -n "$PING_SUBMISSION_DATE" ]]; then
+            DATEARG="--date $PING_SUBMISSION_DATE"
+          fi
 
-          # Configure and run the ingester. We also pass some worker-specific configuration on the command-line.
-          ./date_version_config.py ${PING_SUBMISSION_DATE:-} | ingester --stdin --no-progress --output-file $OUTPUT "cache.size_limit_gb=50"
+          # Download the date's data
+          ./download.py $DATEARG $INPUT
+
+          # Configure and run the ingester. We pass some worker-specific configuration on the command-line.
+          ingester --input-file $INPUT --output-file $OUTPUT --no-progress "cache.size_limit_gb=50"
 
           # Upload to bigquery
           ./upload.py --production $OUTPUT
