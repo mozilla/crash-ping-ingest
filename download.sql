@@ -65,7 +65,7 @@ with
                   (utility_actor IN UNNEST(metrics.string_list.crash_utility_actors_name))))
         where
             DATE(submission_timestamp) = @date
-            and (cast(REGEXP_SUBSTR(client_info.app_display_version, '[0-9]*') as INT64)) = version 
+            and (SAFE_CAST(REGEXP_SUBSTR(client_info.app_display_version, '[0-9]*') as INT64)) = version 
             and metrics.object.crash_stack_traces is not null
     ),
     -- The android table is almost the same as desktop, but different enough that we can't union with it (the glean struct fields being different causes problems).
@@ -92,7 +92,7 @@ with
             and (process_type != 'utility' or utility_actor = 'NONE')
         where
             DATE(submission_timestamp) = @date
-            and (cast(REGEXP_SUBSTR(client_info.app_display_version, '[0-9]*') as INT64)) = version
+            and (SAFE_CAST(REGEXP_SUBSTR(client_info.app_display_version, '[0-9]*') as INT64)) = version
             and (metrics.object.crash_stack_traces is not null or metrics.object.crash_java_exception is not null)
         ),
     combined as (select * from desktop union all select * from android),
