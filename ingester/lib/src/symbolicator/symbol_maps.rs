@@ -3,7 +3,6 @@
 //! too long), which would prevent cache eviction.
 
 use super::{cache, FileHelper, Location};
-use anyhow::Context;
 use futures_util::{
     future::{FutureExt, Shared},
     stream::FuturesUnordered,
@@ -30,11 +29,11 @@ pub(super) type LoadedSymbolMap = Arc<SymbolMap<FileHelper>>;
 pub(super) type SymbolMapError = Arc<dyn std::error::Error + Send + Sync + 'static>;
 
 struct LoadSymbolMap {
-    task_handle: JoinHandle<anyhow::Result<LoadedSymbolMap>>,
+    task_handle: JoinHandle<anyhow::Result<Option<LoadedSymbolMap>>>,
 }
 
 impl std::future::Future for LoadSymbolMap {
-    type Output = Result<LoadedSymbolMap, SymbolMapError>;
+    type Output = Result<Option<LoadedSymbolMap>, SymbolMapError>;
 
     fn poll(
         self: std::pin::Pin<&mut Self>,
@@ -72,7 +71,7 @@ impl SymbolMapGetter {
         self,
         keys: Vec<(Extra, cache::Key)>,
     ) -> FuturesUnordered<
-        impl std::future::Future<Output = (Extra, Result<LoadedSymbolMap, SymbolMapError>)>,
+        impl std::future::Future<Output = (Extra, Result<Option<LoadedSymbolMap>, SymbolMapError>)>,
     > {
         keys.into_iter()
             .map(|(extra, key)| self.get(key).map(move |map| (extra, map)))
@@ -96,11 +95,24 @@ impl SymbolMapGetter {
                         // There's no need to explicitly hold the LiveEntry with the returned
                         // SymbolMap, because it stores the Location (including the LiveEntry)
                         // itself.
-                        manager
+                        match manager
                             .load_symbol_map_from_location(location.clone(), None)
                             .await
                             .map(Arc::new)
-                            .with_context(|| format!("failed to load symbol map for {location}"))
+                        {
+                            // Errors while opening the file should be returned (because they
+                            // may be due to network error); other errors are presumed to be
+                            // caused by bad data (and thus couldn't be fixed by e.g.
+                            // retrying).
+                            Err(e @ samply_symbols::Error::HelperErrorDuringOpenFile { .. }) => {
+                                return Err(e.into());
+                            }
+                            Err(e) => {
+                                log::error!("failed to load symbol map for {location}: {e}");
+                                Ok(None)
+                            }
+                            Ok(sm) => Ok(Some(sm)),
+                        }
                     }),
                 }
                 .shared()

@@ -153,7 +153,8 @@ impl Symbolicator {
 
             'modules: while let Some(((index, module), map)) = modules.next().await {
                 let map = match map {
-                    Ok(map) => map,
+                    Ok(Some(map)) => map,
+                    Ok(None) => continue 'modules,
                     Err(e) => {
                         let mut eref: Option<&(dyn std::error::Error + 'static)> = Some(e.as_ref());
                         while let Some(e) = eref {
