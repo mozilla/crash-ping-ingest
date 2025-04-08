@@ -167,13 +167,7 @@ fn main() -> anyhow::Result<()> {
         .map(|path| std::fs::File::create(path).map(|f| Box::new(f) as Box<dyn Write>))
         .unwrap_or_else(|| Ok(Box::new(std::io::stdout())))?;
 
-    let ingest = CrashPingIngest::new(config, JsonlReader::new(input), move |mut ping_info| {
-        // We don't want the offset field in stack frames.
-        if let Some(stack) = &mut ping_info.stack {
-            for s in stack {
-                s.offset = None;
-            }
-        }
+    let ingest = CrashPingIngest::new(config, JsonlReader::new(input), move |ping_info| {
         serde_json::to_writer(&mut output, &ping_info)?;
         writeln!(&mut output)?;
         Ok(())

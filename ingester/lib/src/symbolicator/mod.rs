@@ -7,7 +7,7 @@ use samply_symbols::{
     BreakpadIndexParser, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
     FramesLookupResult, LibraryInfo, LookupAddress, SymbolManager, SyncAddressInfo,
 };
-use std::{collections::HashMap, mem::ManuallyDrop, num::ParseIntError, sync::Arc};
+use std::{collections::HashMap, mem::ManuallyDrop, sync::Arc};
 use tokio::sync::Semaphore;
 
 mod cache;
@@ -20,35 +20,6 @@ mod symsrv;
 const MAX_TOP_FRAMES: usize = 50;
 const MAX_BOTTOM_FRAMES: usize = 50;
 const MAX_FRAMES: usize = MAX_TOP_FRAMES + MAX_BOTTOM_FRAMES;
-
-/// Spawn an asynchronous file download on a dedicated thread, so that it is not starved (and won't
-/// timeout) when many other tasks are running. Since we potentially spawn tens of thousands of
-/// tasks, even if we constrain how many are running there still may be enough thrashing to delay
-/// things.
-///
-/// We do this roundabout approach rather than using a full blocking API because some functions are
-/// only async (like those in symsrv) and it's a bit cleaner and more semantically friendly to
-/// bracket the necessary code with a function.
-// Not currently used.
-#[allow(unused)]
-async fn file_download<'a, F>(future: F) -> F::Output
-where
-    F: std::future::Future + Send + 'a,
-    F::Output: Send + 'a,
-{
-    let future: futures_util::future::BoxFuture<'a, Box<()>> = Box::pin(async move {
-        let ret: Box<F::Output> = Box::new(future.await);
-        unsafe { std::mem::transmute::<_, Box<()>>(ret) }
-    });
-    let future = unsafe {
-        std::mem::transmute::<_, futures_util::future::BoxFuture<'static, Box<()>>>(future)
-    };
-    let ret =
-        tokio::task::spawn_blocking(move || tokio::runtime::Handle::current().block_on(future))
-            .await
-            .unwrap();
-    *unsafe { std::mem::transmute::<_, Box<F::Output>>(ret) }
-}
 
 pub struct Symbolicator {
     symbol_manager: Arc<SymbolManager<FileHelper>>,
@@ -89,7 +60,14 @@ impl Symbolicator {
         // unnecessary execution dependencies).
         let only_crashing_thread = self.only_crashing_thread;
         tokio::spawn(async move {
-            let mut stack_traces = serde_json::from_str::<json::StackTraces>(&stack_traces_json)?;
+            let mut stack_traces =
+                match serde_json::from_str::<json::StackTraces>(&stack_traces_json) {
+                    Ok(st) => st,
+                    Err(e) => {
+                        log::error!("failed to parse stack traces: {e:#}");
+                        Default::default()
+                    }
+                };
 
             // Temporary workaround for https://bugzilla.mozilla.org/show_bug.cgi?id=1954819
             // Firefox only configures minidump-analyzer to include all threads for crashes
@@ -100,8 +78,8 @@ impl Symbolicator {
                 stack_traces.crash_thread = Some(0);
             }
 
-            fn thread_frames(t: json::Thread<'_>) -> Result<Vec<Frame>, ParseIntError> {
-                t.frames.into_iter().map(Frame::try_from).collect()
+            fn thread_frames(t: json::Thread<'_>) -> Vec<Frame> {
+                t.frames.into_iter().map(Frame::from).collect()
             }
 
             let mut threads = if only_crashing_thread {
@@ -112,7 +90,7 @@ impl Symbolicator {
                         .nth(ind)
                         .map(thread_frames)
                         .into_iter()
-                        .collect::<Result<Vec<_>, _>>()?
+                        .collect::<Vec<_>>()
                 } else {
                     Default::default()
                 }
@@ -121,7 +99,7 @@ impl Symbolicator {
                     .threads
                     .into_iter()
                     .map(thread_frames)
-                    .collect::<Result<Vec<_>, _>>()?
+                    .collect::<Vec<_>>()
             };
 
             // Limit thread frames to MAX_FRAMES.
@@ -133,10 +111,7 @@ impl Symbolicator {
                         [Frame {
                             ip: 0,
                             module_index: None,
-                            info: vec![FrameInfo {
-                                omitted: Some(to_omit),
-                                ..Default::default()
-                            }],
+                            info: vec![FrameInfo::Omitted { omitted: to_omit }],
                         }],
                     );
                 }
@@ -194,9 +169,19 @@ impl Symbolicator {
                 for ping_frame in threads
                     .iter_mut()
                     .flat_map(|t| t)
-                    .filter(|f| f.module_index == Some(index))
+                    .filter(|f| f.ip != 0 && f.module_index == Some(index))
                 {
-                    let offset: u32 = (ping_frame.ip - module.base_address).try_into().unwrap();
+                    let offset: u32 = match (ping_frame.ip - module.base_address).try_into() {
+                        Ok(v) => v,
+                        Err(e) => {
+                            log::error!(
+                                "error getting module offset (ip={}, base_address={}): {e}",
+                                ping_frame.ip,
+                                module.base_address
+                            );
+                            continue;
+                        }
+                    };
                     if let Some(SyncAddressInfo {
                         frames: Some(FramesLookupResult::Available(frames)),
                         symbol,
@@ -204,12 +189,7 @@ impl Symbolicator {
                     {
                         ping_frame.info = frames
                             .into_iter()
-                            .map(|f| FrameInfo {
-                                file: f.file_path.map(|p| match p.mapped_path() {
-                                    Some(mapped) => mapped.to_special_path_str(),
-                                    None => p.raw_path().to_string(),
-                                }),
-                                line: f.line_number,
+                            .map(|f| FrameInfo::Symbol {
                                 module: module
                                     .filename
                                     .as_ref()
@@ -218,8 +198,11 @@ impl Symbolicator {
                                 module_offset: Some(format!("{offset:#018x}")),
                                 function: f.function,
                                 function_offset: Some(format!("{:#018x}", offset - symbol.address)),
-                                offset: Some(format!("{:#018x}", ping_frame.ip)),
-                                omitted: None,
+                                file: f.file_path.map(|p| match p.mapped_path() {
+                                    Some(mapped) => mapped.to_special_path_str(),
+                                    None => p.raw_path().to_string(),
+                                }),
+                                line: f.line_number,
                             })
                             .collect();
                     }
@@ -249,13 +232,15 @@ impl Symbolicator {
                         let total_omitted: usize = frames
                             [MAX_TOP_FRAMES..(MAX_TOP_FRAMES + to_omit)]
                             .iter()
-                            .map(|info| info.omitted.unwrap_or(1))
+                            .map(|info| match info {
+                                FrameInfo::Omitted { omitted } => *omitted,
+                                _ => 1,
+                            })
                             .sum();
                         frames.splice(
                             MAX_TOP_FRAMES..(MAX_TOP_FRAMES + to_omit),
-                            [FrameInfo {
-                                omitted: Some(total_omitted),
-                                ..Default::default()
+                            [FrameInfo::Omitted {
+                                omitted: total_omitted,
                             }],
                         );
                     }
@@ -331,11 +316,13 @@ impl Frame {
                     module_offset = Some(format!("{:#018x}", self.ip - base));
                 }
             }
-            vec![FrameInfo {
+            vec![FrameInfo::Symbol {
                 module,
                 module_offset,
-                offset: Some(format!("{:#018x}", self.ip)),
-                ..Default::default()
+                function: None,
+                function_offset: None,
+                file: None,
+                line: None,
             }]
         } else {
             self.info
@@ -355,39 +342,53 @@ pub struct ThreadInfo {
     pub frames: Vec<FrameInfo>,
 }
 
-#[derive(Debug, Default, serde::Serialize)]
-pub struct FrameInfo {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub function: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub function_offset: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub line: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub module: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub module_offset: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub offset: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub omitted: Option<usize>,
+#[derive(Debug, serde::Serialize)]
+#[serde(untagged)]
+pub enum FrameInfo {
+    Omitted {
+        omitted: usize,
+    },
+    Error {
+        error: String,
+    },
+    Symbol {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        module: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        module_offset: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        function: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        function_offset: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        file: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        line: Option<u32>,
+    },
 }
 
-fn parse_hex(s: &str) -> Result<usize, ParseIntError> {
+fn parse_hex(s: &str) -> anyhow::Result<usize> {
     usize::from_str_radix(s.trim_start_matches("0x"), 16)
+        .with_context(|| format!("parsing {s} as hex"))
 }
 
-impl TryFrom<json::Frame<'_>> for Frame {
-    type Error = ParseIntError;
-
-    fn try_from(value: json::Frame) -> Result<Self, Self::Error> {
-        Ok(Frame {
-            ip: parse_hex(&value.ip)?,
+impl From<json::Frame<'_>> for Frame {
+    fn from(value: json::Frame) -> Self {
+        let mut ret = Frame {
+            ip: 0,
             module_index: value.module_index,
             info: Default::default(),
-        })
+        };
+        match parse_hex(&value.ip) {
+            Ok(ip) => ret.ip = ip,
+            Err(e) => {
+                log::error!("{e:#}");
+                ret.info.push(FrameInfo::Error {
+                    error: format!("{e}"),
+                });
+            }
+        }
+        ret
     }
 }
 
@@ -410,6 +411,7 @@ impl TryFrom<&json::Module<'_>> for Module {
             debug_file: value
                 .debug_file
                 .as_ref()
+                .and_then(|s| (!s.is_empty()).then_some(s))
                 .context("missing debug_file")?
                 .rsplit("/")
                 .next()
@@ -418,8 +420,10 @@ impl TryFrom<&json::Module<'_>> for Module {
             debug_id: value
                 .debug_id
                 .as_ref()
+                .and_then(|s| (!s.is_empty()).then_some(s))
                 .context("missing debug_id")?
-                .parse()?,
+                .parse()
+                .with_context(|| format!("'{}'", value.debug_id.as_ref().unwrap()))?,
         })
     }
 }
@@ -1086,7 +1090,7 @@ mod json {
     // Android stack traces are camelCase rather than snake_case (bug 1931891 should fix this), so
     // we use aliases where necessary.
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Default, Deserialize)]
     pub struct StackTraces<'a> {
         #[serde(alias = "crashThread")]
         pub crash_thread: Option<usize>,
