@@ -54,6 +54,9 @@ TABLE_SCHEMA = [
             bigquery.SchemaField('omitted', 'INTEGER',
                 description = "Whether frames were omitted. If this field is present, no other fields will be present.",
             ),
+            bigquery.SchemaField('error', 'STRING',
+                description = "An error message when generating the stack frame. If this field is present, no other fields will be present.",
+            ),
         ],
     ),
 ]
