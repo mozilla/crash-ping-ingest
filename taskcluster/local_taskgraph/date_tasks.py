@@ -45,12 +45,10 @@ PROCESS_PINGS_MANUAL_PARAM = "process_pings_manual"
 PARAMETERS_SCHEMA = {
     PROCESS_PINGS_MANUAL_PARAM: {
         Required("dates"): [str],
-        "index": bool
+        "index": bool,
+        "max_tasks": int,
     }
 }
-
-# Maximum number of tasks to run at once in the task action.
-MAX_ACTION_TASKS = 14
 
 
 # Transforms logic
@@ -114,21 +112,23 @@ def create_date_tasks(config, tasks):
             manual_cfg = config.params[PROCESS_PINGS_MANUAL_PARAM]
             dates = manual_cfg["dates"]
             add_index = manual_cfg.get("index", True)
+            max_tasks = manual_cfg.get("max_tasks", 0)
 
-            deps = [None] * MAX_ACTION_TASKS
+            deps = [None] * max_tasks if max_tasks > 0 else None
 
             for ind, date in enumerate(dates):
                 new_task = deepcopy(task)
                 new_task["name"] += "-manual-" + date
                 set_task_date(new_task, date, add_index = add_index)
 
-                # Create arbitrary dependencies among the date tasks to avoid
-                # running too many at once (to be a good citizen to the symbol
-                # servers).
-                dep_ind = ind % len(deps);
-                if deps[dep_ind] is not None:
-                    new_task.setdefault("dependencies", {})[deps[dep_ind]] = deps[dep_ind]
-                deps[dep_ind] = "{}-{}".format(config.kind, new_task["name"])
+                if deps is not None:
+                    # Create arbitrary dependencies among the date tasks to
+                    # avoid running too many at once (e.g., to be a good
+                    # citizen to the symbol servers).
+                    dep_ind = ind % len(deps);
+                    if deps[dep_ind] is not None:
+                        new_task.setdefault("dependencies", {})[deps[dep_ind]] = deps[dep_ind]
+                    deps[dep_ind] = "{}-{}".format(config.kind, new_task["name"])
                 yield new_task
 
 
@@ -187,6 +187,13 @@ extend_parameters_schema(PARAMETERS_SCHEMA)
                 'description': 'Index the processed results.',
                 'type': 'boolean',
                 'default': 'true',
+            },
+            'max_tasks': {
+                'title': 'Maximum Concurrent Tasks',
+                'description': 'The maximum number of tasks to run at once. 0 means no maximum.',
+                'type': 'integer',
+                'minimum': 0,
+                'default': 0,
             },
         },
         'required': ['dates'],
