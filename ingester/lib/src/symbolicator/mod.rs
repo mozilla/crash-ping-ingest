@@ -743,7 +743,11 @@ impl FileHelper {
                                 continue;
                             }
                             // This usually occurs from a garbage debug file string
-                            if status == reqwest::StatusCode::BAD_REQUEST {
+                            if matches!(
+                                status,
+                                reqwest::StatusCode::BAD_REQUEST
+                                    | reqwest::StatusCode::URI_TOO_LONG
+                            ) {
                                 log::debug!("Ignoring breakpad fetch error: {e}");
                                 continue;
                             }
