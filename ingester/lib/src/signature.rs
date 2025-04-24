@@ -125,15 +125,34 @@ impl<'a> JavaException<'a> {
             Ok(v) => v,
         }?;
 
-        // Try to get exception name from the messages.
-        let mut module = None;
-        let mut exc_type = None;
-        let first_message = exception.messages.into_iter().nth(0);
-        if let Some((front, _)) = first_message.as_ref().and_then(|m| m.split_once(":")) {
-            if front.ends_with("Exception") {
-                let mut iter = front.rsplitn(2, ".");
-                exc_type = iter.next().map(ToOwned::to_owned);
-                module = iter.next().map(ToOwned::to_owned);
+        let mut module: Option<String> = None;
+        let mut exc_type: Option<String> = None;
+
+        let mut parse_exception = |s: &str| {
+            let mut iter = s.rsplitn(2, ".");
+            exc_type = iter.next().map(ToOwned::to_owned);
+            module = iter.next().map(ToOwned::to_owned);
+        };
+
+        let frames;
+        match exception {
+            json::JavaException::V0 { messages, stack } => {
+                // Try to get exception name from the messages.
+                let first_message = messages.into_iter().nth(0);
+                if let Some((front, _)) = first_message.as_ref().and_then(|m| m.split_once(":")) {
+                    if front.ends_with("Exception") {
+                        parse_exception(front);
+                    }
+                }
+                frames = stack;
+            }
+            json::JavaException::V1 { throwables } => {
+                if let Some(first) = throwables.into_iter().nth(0) {
+                    parse_exception(&first.type_name);
+                    frames = first.stack;
+                } else {
+                    frames = Default::default();
+                }
             }
         }
 
@@ -142,7 +161,7 @@ impl<'a> JavaException<'a> {
                 values: vec![ExceptionValue::Stacktrace {
                     module,
                     exc_type,
-                    frames: exception.stack,
+                    frames,
                 }],
             },
         })
@@ -180,10 +199,25 @@ mod json {
     use std::borrow::Cow;
 
     #[derive(Debug, Deserialize)]
-    pub struct JavaException<'a> {
+    #[serde(untagged)]
+    pub enum JavaException<'a> {
+        V0 {
+            #[serde(default, borrow)]
+            stack: Vec<super::ExceptionFrame<'a>>,
+            #[serde(default, borrow)]
+            messages: Vec<Cow<'a, str>>,
+        },
+        V1 {
+            #[serde(default, borrow)]
+            throwables: Vec<Throwable<'a>>,
+        },
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct Throwable<'a> {
+        #[serde(rename(deserialize = "typeName"))]
+        pub type_name: Cow<'a, str>,
         #[serde(default, borrow)]
         pub stack: Vec<super::ExceptionFrame<'a>>,
-        #[serde(default, borrow)]
-        pub messages: Vec<Cow<'a, str>>,
     }
 }
