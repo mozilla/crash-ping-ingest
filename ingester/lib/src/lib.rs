@@ -134,6 +134,7 @@ where
                     Ok(PingInfo {
                         document_id: row.document_id,
                         submission_timestamp: row.submission_timestamp,
+                        config_id: row.config_id,
                         crash_type,
                         signature,
                         stack,
@@ -180,6 +181,7 @@ where
 pub struct PingInfo {
     pub document_id: String,
     pub submission_timestamp: String,
+    pub config_id: u64,
     pub crash_type: Option<String>,
     pub signature: Option<String>,
     pub stack: Option<Vec<symbolicator::FrameInfo>>,
@@ -189,6 +191,7 @@ pub struct PingInfo {
 pub struct InputRow {
     pub document_id: String,
     pub submission_timestamp: String,
+    pub config_id: u64,
     pub stack_traces: Option<String>,
     pub java_exception: Option<String>,
     pub moz_crash_reason: Option<String>,

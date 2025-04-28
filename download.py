@@ -6,7 +6,9 @@
 from bisect import bisect_right
 from datetime import date, datetime, timedelta, timezone
 from google.cloud import bigquery
+from pathlib import PurePath
 import requests
+import typing
 
 RELEASE_ROLLOUT_PERIOD = timedelta(days=2)
 
@@ -34,7 +36,8 @@ def get_release_version(for_date: date) -> int:
     major = int(release_versions[i - 1][0].split('.')[0]) if i > 0 else 0
     return major
 
-def download(query: str, for_date: date, release_version: int) -> bigquery.table.RowIterator:
+# Returns the config rows and the pings rows
+def download(query: str, for_date: date, release_version: int) -> tuple[bigquery.table.RowIterator, bigquery.table.RowIterator]:
     client = bigquery.Client(PROJECT)
     job_config = bigquery.QueryJobConfig(
         query_parameters = [
@@ -42,8 +45,17 @@ def download(query: str, for_date: date, release_version: int) -> bigquery.table
             bigquery.ScalarQueryParameter("release_version", bigquery.SqlParameterScalarTypes.INT64, release_version),
         ],
     )
-    return client.query_and_wait(query, job_config = job_config)
+    query_job = client.query(query, job_config = job_config)
+    # Wait for job to complete (to ensure all child jobs are present)
+    query_job.result()
+    child_jobs = client.list_jobs(parent_job = query_job)
+    [pings_job, config_job] = [job for job in child_jobs if job.statement_type == "SELECT"]
+    return config_job.result(), pings_job.result()
 
+def write_rows(rows: bigquery.table.RowIterator, output: typing.IO[str]):
+    for row in rows:
+        json.dump(dict(row), output, separators=(',',':'))
+        output.write("\n")
 
 if __name__ == "__main__":
     import argparse
@@ -54,8 +66,13 @@ if __name__ == "__main__":
     parser.add_argument('-d', '--date', help="the date for which to fetch data. Defaults to yesterday (UTC)")
     parser.add_argument('-q', '--query', metavar="FILE", help="""the sql query file to use to fetch the data.
                         It will be passed `date: DATE` and `release_version: INT64` parameters.
+                        The query should have two select statements: the first producing configuration and
+                        the second producing pings.
                         Defaults to `download.sql`""", default="download.sql")
-    parser.add_argument('filename', help="the jsonl file to write; use '-' for stdout")
+    parser.add_argument('-c', '--config', metavar="FILE", help="the file to which to write the config file")
+    parser.add_argument('filename', help="""the jsonl file to write; use '-' for stdout.
+                        If `--config` is omitted, the config table will be written to `<filename-stem>-config.jsonl`, or just `config.jsonl` if writing to stdout.
+                        """)
 
     args = parser.parse_args()
 
@@ -65,11 +82,20 @@ if __name__ == "__main__":
     with open(args.query, 'r') as f:
         query = f.read()
 
-    if args.filename == '-':
-        output = sys.stdout
-    else:
-        output = open(args.filename, 'w')
+    config_output_path = args.config
 
-    for row in download(query, for_date, release_version):
-        json.dump(dict(row), output, separators=(',',':'))
-        output.write("\n")
+    if args.filename == '-':
+        pings_output = sys.stdout
+        if config_output_path is None:
+            config_output_path = 'config.jsonl'
+    else:
+        pings_output = open(args.filename, 'w')
+        if config_output_path is None:
+            path = PurePath(args.filename)
+            config_output_path = str(path.with_stem(path.stem + "-config"))
+
+    config_output = open(config_output_path, 'w')
+
+    config, pings = download(query, for_date, release_version)
+    write_rows(config, config_output)
+    write_rows(pings, pings_output)
