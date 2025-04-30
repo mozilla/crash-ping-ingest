@@ -57,8 +57,8 @@ create temp table pings as (
                 metrics.string.crash_ipc_channel_error as ipc_channel_error,
                 metrics.quantity.memory_oom_allocation_size as oom_size,
                 normalized_os as os,
-                client_info.app_channel as channel,
-                client_info.app_display_version as display_version,
+                metrics.string.crash_app_channel as channel,
+                metrics.string.crash_app_display_version as display_version,
                 metrics.string.crash_process_type as process_type,
                 metrics.string_list.crash_utility_actors_name as utility_actors_name
             from firefox_desktop.desktop_crashes
@@ -73,8 +73,8 @@ create temp table pings as (
                 metrics.string.crash_ipc_channel_error as ipc_channel_error,
                 metrics.quantity.memory_oom_allocation_size as oom_size,
                 normalized_os as os,
-                client_info.app_channel as channel,
-                client_info.app_display_version as display_version,
+                metrics.string.crash_app_channel as channel,
+                metrics.string.crash_app_display_version as display_version,
                 metrics.string.crash_process_type as process_type
             from fenix.crash
         )
