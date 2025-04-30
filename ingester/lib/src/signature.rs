@@ -201,15 +201,17 @@ mod json {
     #[derive(Debug, Deserialize)]
     #[serde(untagged)]
     pub enum JavaException<'a> {
+        // Order V1 before V0 because the keys of V0 are both optional so it will match a V1
+        // serialization.
+        V1 {
+            #[serde(borrow)]
+            throwables: Vec<Throwable<'a>>,
+        },
         V0 {
             #[serde(default, borrow)]
             stack: Vec<super::ExceptionFrame<'a>>,
             #[serde(default, borrow)]
             messages: Vec<Cow<'a, str>>,
-        },
-        V1 {
-            #[serde(default, borrow)]
-            throwables: Vec<Throwable<'a>>,
         },
     }
 
