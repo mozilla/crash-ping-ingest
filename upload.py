@@ -4,10 +4,13 @@
 
 from datetime import date
 from google.cloud import bigquery
+from google.api_core.exceptions import BadRequest
 from pathlib import Path
 import json
 import os
+import random
 import sys
+import time
 import typing
 
 PROJECT = 'moz-fx-data-shared-prod'
@@ -191,6 +194,52 @@ def project_id(prod: bool = False) -> str:
 def make_client(prod: bool = False) -> bigquery.Client:
     return bigquery.Client(project = project_id(prod))
 
+def try_upload(client: bigquery.Client, 
+               data_date: date,
+               ping_ndjson: tuple[typing.IO[bytes], typing.Optional[int]],
+               config_ndjson: tuple[typing.IO[bytes], int]) -> bool:
+    try:
+        with BigquerySession(client) as session:
+            client.query_and_wait("BEGIN TRANSACTION;", job_config=session.config(bigquery.QueryJobConfig()))
+
+            # Clear out rows already associated with the date. We want all rows for
+            # a particular date to be the result of a single upload.
+            client.query_and_wait((
+                    f"DELETE FROM {DATASET}.{CONFIG_TABLE_NAME} where date = @date;"
+                    f"DELETE FROM {DATASET}.{TABLE_NAME} where DATE(submission_timestamp) = @date;"
+                ),
+                job_config = session.config(bigquery.QueryJobConfig(
+                    query_parameters = [
+                        bigquery.ScalarQueryParameter("date", bigquery.SqlParameterScalarTypes.DATE, data_date),
+                    ],
+                )),
+            )
+
+            # Upload new data
+            client.load_table_from_file(
+                ping_ndjson[0],
+                client.dataset(DATASET).table(TABLE_NAME),
+                size = ping_ndjson[1],
+                rewind = True,
+                job_config = session.config(bigquery.LoadJobConfig(source_format = bigquery.SourceFormat.NEWLINE_DELIMITED_JSON))
+            ).result()
+
+            client.load_table_from_file(
+                config_ndjson[0],
+                client.dataset(DATASET).table(CONFIG_TABLE_NAME),
+                size = config_ndjson[1],
+                rewind = True,
+                job_config = session.config(bigquery.LoadJobConfig(source_format = bigquery.SourceFormat.NEWLINE_DELIMITED_JSON))
+            ).result()
+
+            client.query("COMMIT TRANSACTION;", job_config=session.config(bigquery.QueryJobConfig())).result()
+
+            return True
+    except BadRequest as e:
+        if "aborted due to concurrent update" in str(e):
+            return False
+        raise
+
 
 def upload(prod: bool,
            data_date: date,
@@ -207,40 +256,14 @@ def upload(prod: bool,
     update_table_schema(client, TABLE_NAME, TABLE_SCHEMA)
     update_table_schema(client, CONFIG_TABLE_NAME, CONFIG_TABLE_SCHEMA)
 
-    with BigquerySession(client) as session:
-        client.query_and_wait("BEGIN TRANSACTION;", job_config=session.config(bigquery.QueryJobConfig()))
+    # We may fail due to concurrent updates by other tasks (if a batch of tasks is started); just keep retrying for a while.
+    retries = 30
+    while not try_upload(client, data_date, ping_ndjson, config_ndjson):
+       time.sleep(random.randint(1, 5) * 30) 
+       retries -= 1
+       if retries == 0:
+           raise RuntimeError("aborted due to concurrent update; retries exhausted")
 
-        # Clear out rows already associated with the date. We want the all rows
-        # for a particular date to be the result of a single upload.
-        client.query_and_wait((
-                f"DELETE FROM {DATASET}.{CONFIG_TABLE_NAME} where date = @date;"
-                f"DELETE FROM {DATASET}.{TABLE_NAME} where DATE(submission_timestamp) = @date;"
-            ),
-            job_config = session.config(bigquery.QueryJobConfig(
-                query_parameters = [
-                    bigquery.ScalarQueryParameter("date", bigquery.SqlParameterScalarTypes.DATE, data_date),
-                ],
-            )),
-        )
-
-        # Upload new data
-        client.load_table_from_file(
-            ping_ndjson[0],
-            client.dataset(DATASET).table(TABLE_NAME),
-            size = ping_ndjson[1],
-            rewind = True,
-            job_config = session.config(bigquery.LoadJobConfig(source_format = bigquery.SourceFormat.NEWLINE_DELIMITED_JSON))
-        ).result()
-
-        client.load_table_from_file(
-            config_ndjson[0],
-            client.dataset(DATASET).table(CONFIG_TABLE_NAME),
-            size = config_ndjson[1],
-            rewind = True,
-            job_config = session.config(bigquery.LoadJobConfig(source_format = bigquery.SourceFormat.NEWLINE_DELIMITED_JSON))
-        ).result()
-
-        client.query("COMMIT TRANSACTION;", job_config=session.config(bigquery.QueryJobConfig())).result()
 
 if __name__ == '__main__':
     import argparse
