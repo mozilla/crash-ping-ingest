@@ -186,6 +186,15 @@ def update_table_schema(client: bigquery.Client, table_name: str, schema: list[b
 def create_config_table(client: bigquery.Client):
     table_ref = client.dataset(DATASET).table(CONFIG_TABLE_NAME)
     table = bigquery.Table(table_ref, schema = CONFIG_TABLE_SCHEMA)
+    # We don't expect a lot of data to be present, however partitioning the
+    # table allows DML statements (like DELETE) to not cause concurrent update
+    # errors.
+    table.time_partitioning = bigquery.TimePartitioning(
+        type_ = bigquery.TimePartitioningType.DAY,
+        field = "date",
+        # 775 days, matching the other tables
+        expiration_ms = 1000 * 60 * 60 * 24 * 775,
+    )
     client.create_table(table)
 
 def project_id(prod: bool = False) -> str:
