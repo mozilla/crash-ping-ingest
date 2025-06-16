@@ -183,29 +183,39 @@ impl Symbolicator {
                             continue;
                         }
                     };
-                    if let Some(SyncAddressInfo {
-                        frames: Some(FramesLookupResult::Available(frames)),
-                        symbol,
-                    }) = map.lookup_sync(LookupAddress::Relative(offset))
+
+                    if let Some(SyncAddressInfo { frames, symbol }) =
+                        map.lookup_sync(LookupAddress::Relative(offset))
                     {
-                        ping_frame.info = frames
-                            .into_iter()
-                            .map(|f| FrameInfo::Symbol {
+                        let create_frame_info = |f: Option<samply_symbols::FrameDebugInfo>| {
+                            let (function, file_path, line) = f
+                                .map(|f| (f.function, f.file_path, f.line_number))
+                                .unwrap_or_default();
+                            FrameInfo::Symbol {
                                 module: module
                                     .filename
                                     .as_ref()
                                     .or(Some(&module.debug_file))
                                     .cloned(),
                                 module_offset: Some(format!("{offset:#018x}")),
-                                function: f.function,
+                                function: function.or(Some(symbol.name.clone())),
                                 function_offset: Some(format!("{:#018x}", offset - symbol.address)),
-                                file: f.file_path.map(|p| match p.mapped_path() {
+                                file: file_path.map(|p| match p.mapped_path() {
                                     Some(mapped) => mapped.to_special_path_str(),
                                     None => p.raw_path().to_string(),
                                 }),
-                                line: f.line_number,
-                            })
-                            .collect();
+                                line,
+                            }
+                        };
+
+                        if let Some(FramesLookupResult::Available(frames)) = frames {
+                            ping_frame.info = frames
+                                .into_iter()
+                                .map(|f| create_frame_info(Some(f)))
+                                .collect();
+                        } else {
+                            ping_frame.info = vec![create_frame_info(None)];
+                        }
                     }
                 }
             }
