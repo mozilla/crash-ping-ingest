@@ -5,7 +5,7 @@ task-defaults:
   run-on-git-branches:
     - main
   # Ingest symbolication can take advantage of a lot of CPU (and disk space).
-  worker-type: t-linux-large
+  worker-type: t-linux
   worker:
     # Because all tasks rely on the ingester tasks right now, we just use the
     # same image for everything.
