@@ -44,46 +44,6 @@ create temp table config as (
 -- rather than use CTEs (since CTEs would be recomputed and we need these
 -- tables for both the config query and final output query).
 create temp table pings as (
-    -- Desktop and Android have slightly different tables because their metrics
-    -- differ, so we can't simply union them without first extracting our
-    -- fields of interest.
-    with
-        desktop as (
-            select
-                document_id,
-                submission_timestamp,
-                metrics.object.crash_stack_traces as stack_traces,
-                metrics.string.crash_moz_crash_reason as moz_crash_reason,
-                metrics.string.crash_ipc_channel_error as ipc_channel_error,
-                metrics.quantity.memory_oom_allocation_size as oom_size,
-                normalized_os as os,
-                -- BUG 1966213: Prefer metrics to client_info (since the crash
-                -- may have occurred in a different version than the submitting
-                -- client), but use the client_info as a fallback.
-                IFNULL(metrics.string.crash_app_channel, client_info.app_channel) as channel,
-                IFNULL(metrics.string.crash_app_display_version, client_info.app_display_version) as display_version,
-                metrics.string.crash_process_type as process_type,
-                metrics.string_list.crash_utility_actors_name as utility_actors_name
-            from firefox_desktop.desktop_crashes
-        ),
-        android as (
-            select
-                document_id,
-                submission_timestamp,
-                metrics.object.crash_stack_traces as stack_traces,
-                metrics.object.crash_java_exception as java_exception,
-                metrics.string.crash_moz_crash_reason as moz_crash_reason,
-                metrics.string.crash_ipc_channel_error as ipc_channel_error,
-                metrics.quantity.memory_oom_allocation_size as oom_size,
-                normalized_os as os,
-                -- BUG 1966213: Prefer metrics to client_info (since the crash
-                -- may have occurred in a different version than the submitting
-                -- client), but use the client_info as a fallback.
-                IFNULL(metrics.string.crash_app_channel, client_info.app_channel) as channel,
-                IFNULL(metrics.string.crash_app_display_version, client_info.app_display_version) as display_version,
-                metrics.string.crash_process_type as process_type
-            from fenix.crash
-        )
     select
         config.id as config_id,
         target_sample_count,
@@ -91,29 +51,29 @@ create temp table pings as (
         -- Explicitly format the timestamp for maximum precision because these values will be round-tripped into the ingest output table and joined.
         -- Otherwise the default result string only has millisecond precision and doesn't join correctly.
         FORMAT_TIMESTAMP("%FT%R:%E*S", submission_timestamp) as submission_timestamp,
-        IF(stack_traces is null, null, TO_JSON_STRING(stack_traces)) as stack_traces,
-        IF(java_exception is null, null, TO_JSON_STRING(java_exception)) as java_exception,
-        moz_crash_reason,
-        ipc_channel_error,
-        oom_size,
-        data.os,
-        data.channel,
-    from (select * from desktop outer union all by name select * from android) as data
+        IF(metrics.object.crash_stack_traces is null, null, TO_JSON_STRING(metrics.object.crash_stack_traces)) as stack_traces,
+        IF(metrics.object.crash_java_exception is null, null, TO_JSON_STRING(metrics.object.crash_java_exception)) as java_exception,
+        metrics.string.crash_moz_crash_reason as moz_crash_reason,
+        metrics.string.crash_ipc_channel_error as ipc_channel_error,
+        metrics.quantity.memory_oom_allocation_size as oom_size,
+        normalized_os as os,
+        crash_app_channel as channel,
+    from telemetry.firefox_crashes as data
     join config
-        on config.os = data.os
-        and config.channel = data.channel
-        and (SAFE_CAST(REGEXP_SUBSTR(display_version, '[0-9]*') as INT64)) = version
-        and config.process_type = data.process_type
+        on config.os = normalized_os
+        and config.channel = crash_app_channel
+        and (SAFE_CAST(REGEXP_SUBSTR(crash_app_display_version, '[0-9]*') as INT64)) = version
+        and config.process_type = metrics.string.crash_process_type
         and (
                 config.process_type != 'utility'
                 or (
-                    (utility_actor is null and ARRAY_LENGTH(IFNULL(utility_actors_name, [])) = 0)
-                    or (utility_actor in UNNEST(utility_actors_name))
+                    (utility_actor is null and ARRAY_LENGTH(IFNULL(metrics.string_list.crash_utility_actors_name, [])) = 0)
+                    or (utility_actor in UNNEST(metrics.string_list.crash_utility_actors_name))
                 )
         )
     where 
         DATE(submission_timestamp) = @date
-        and (stack_traces is not null or java_exception is not null)
+        and (metrics.object.crash_stack_traces is not null or metrics.object.crash_java_exception is not null)
 );
 
 create temp table config_counts as (
