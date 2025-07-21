@@ -225,6 +225,7 @@ impl Symbolicator {
                                 .map(|f| (f.function, f.file_path, f.line_number))
                                 .unwrap_or_default();
                             FrameInfo::Symbol {
+                                offset: Some(format!("{:#018x}", ping_frame.ip)),
                                 module: module
                                     .filename
                                     .as_ref()
@@ -395,6 +396,7 @@ impl Frame {
                 }
             }
             vec![FrameInfo::Symbol {
+                offset: Some(format!("{:#018x}", self.ip)),
                 module,
                 module_offset,
                 function: None,
@@ -430,6 +432,8 @@ pub enum FrameInfo {
         error: String,
     },
     Symbol {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        offset: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         module: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
