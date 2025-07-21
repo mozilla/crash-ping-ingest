@@ -82,24 +82,57 @@ impl Symbolicator {
                 t.frames.into_iter().map(Frame::from).collect()
             }
 
-            let mut threads = if only_crashing_thread {
-                if let Some(ind) = stack_traces.crash_thread {
-                    stack_traces
-                        .threads
-                        .into_iter()
-                        .nth(ind)
-                        .map(thread_frames)
-                        .into_iter()
-                        .collect::<Vec<_>>()
-                } else {
-                    Default::default()
-                }
-            } else {
-                stack_traces
+            let mut threads = {
+                let mut threads = stack_traces
                     .threads
                     .into_iter()
-                    .map(thread_frames)
-                    .collect::<Vec<_>>()
+                    .map(Memo::new)
+                    .collect::<Vec<_>>();
+
+                if let Some(mut ind) = stack_traces.crash_thread {
+                    // Add an empty thread and adjust the crash thread if out-of-bounds
+                    if ind >= threads.len() {
+                        log::debug!("crashing thread index out of bounds: creating a new thread with no frames as the crashing thread");
+                        ind = threads.len();
+                        stack_traces.crash_thread = Some(ind);
+                        threads.push(Memo::output(vec![]));
+                    }
+
+                    // Use the crash address directly if no frame data is available
+                    let frames = threads[ind].get(thread_frames);
+                    if frames.is_empty() {
+                        if let Some(ip) = stack_traces
+                            .crash_address
+                            .as_ref()
+                            .and_then(|s| parse_hex(s).ok())
+                        {
+                            log::debug!("no frames in crashing thread: using crash address");
+                            frames.push(Frame {
+                                ip,
+                                module_index: None,
+                                info: Default::default(),
+                            });
+                        }
+                    }
+                }
+
+                if only_crashing_thread {
+                    if let Some(ind) = stack_traces.crash_thread {
+                        threads
+                            .into_iter()
+                            .nth(ind)
+                            .map(|m| m.into_output(thread_frames))
+                            .into_iter()
+                            .collect::<Vec<_>>()
+                    } else {
+                        Default::default()
+                    }
+                } else {
+                    threads
+                        .into_iter()
+                        .map(|m| m.into_output(thread_frames))
+                        .collect()
+                }
             };
 
             // Limit thread frames to MAX_FRAMES.
@@ -295,6 +328,39 @@ impl Symbolicator {
     }
 }
 
+enum Memo<T, U> {
+    Input(Option<T>),
+    Output(U),
+}
+
+impl<T, U> Memo<T, U> {
+    pub fn new(input: T) -> Self {
+        Memo::Input(Some(input))
+    }
+
+    pub fn output(output: U) -> Self {
+        Memo::Output(output)
+    }
+
+    pub fn get<F: FnOnce(T) -> U>(&mut self, f: F) -> &mut U {
+        if let Self::Input(i) = self {
+            *self = Self::Output(f(i.take().unwrap()));
+        }
+        if let Self::Output(o) = self {
+            o
+        } else {
+            unreachable!()
+        }
+    }
+
+    pub fn into_output<F: FnOnce(T) -> U>(self, f: F) -> U {
+        match self {
+            Self::Input(i) => f(i.unwrap()),
+            Self::Output(o) => o,
+        }
+    }
+}
+
 struct Module {
     base_address: usize,
     filename: Option<String>,
@@ -302,6 +368,7 @@ struct Module {
     debug_id: DebugId,
 }
 
+#[derive(Debug)]
 struct Frame {
     ip: usize,
     module_index: Option<usize>,
@@ -1107,6 +1174,8 @@ mod json {
 
     #[derive(Debug, Default, Deserialize)]
     pub struct StackTraces<'a> {
+        #[serde(alias = "crashAddress")]
+        pub crash_address: Option<String>,
         #[serde(alias = "crashThread")]
         pub crash_thread: Option<usize>,
         #[serde(alias = "crashType")]
