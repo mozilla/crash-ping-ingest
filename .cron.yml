@@ -9,4 +9,4 @@ jobs:
       # This has to run later than
       # https://github.com/mozilla/bigquery-etl/blob/86953ab0ee9f024597572be044d5d4c241fd2cb7/dags.yaml#L2398
       # since we use the resulting `telemetry.firefox_crashes` table.
-      - { hour: 5, minute: 0 }
+      - { hour: 6, minute: 0 }
