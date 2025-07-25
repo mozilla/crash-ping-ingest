@@ -2,6 +2,7 @@
 
 # Upload processed crash ping data to bigquery.
 
+from collections.abc import Iterable
 from datetime import date
 from google.cloud import bigquery
 from google.api_core.exceptions import BadRequest
@@ -44,6 +45,9 @@ TABLE_SCHEMA = [
         description = "Symbolicated stack frames for the crash ping.",
         mode = 'REPEATED',
         fields = [
+            bigquery.SchemaField('offset', 'STRING',
+                description = "The absolute offset of the frame.",
+            ),
             bigquery.SchemaField('function', 'STRING',
                 description = "The function symbol corresponding to the stack frame.",
             ),
@@ -172,14 +176,22 @@ def create_table(client: bigquery.Client):
 
     client.create_table(table)
 
-def schema_field_names(schema: list[bigquery.SchemaField]) -> set[str]:
-    return set(f.name for f in schema)
+def schema_names_differ(a: Iterable[bigquery.SchemaField], b: Iterable[bigquery.SchemaField]) -> bool:
+    a_by_name = {f.name: f for f in a}
+    b_by_name = {f.name: f for f in b}
+    if a_by_name.keys() != b_by_name.keys():
+        return True
+    for k, f in a_by_name.items():
+        if f.field_type == 'RECORD':
+            if schema_names_differ(f.fields, b_by_name[k].fields):
+                return True
+    return False
 
 def update_table_schema(client: bigquery.Client, table_name: str, schema: list[bigquery.SchemaField]):
     table_ref = client.dataset(DATASET).table(table_name)
     table = client.get_table(table_ref)
 
-    if schema_field_names(table.schema) != schema_field_names(schema):
+    if schema_names_differ(table.schema, schema):
         table.schema = schema
         client.update_table(table, ["schema"])
 
