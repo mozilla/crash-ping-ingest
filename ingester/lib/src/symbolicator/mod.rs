@@ -1178,11 +1178,11 @@ mod json {
 
     #[derive(Debug, Default, Deserialize)]
     pub struct StackTraces<'a> {
-        #[serde(alias = "crashAddress")]
+        #[serde(alias = "crashAddress", default)]
         pub crash_address: Option<String>,
-        #[serde(alias = "crashThread")]
+        #[serde(alias = "crashThread", default)]
         pub crash_thread: Option<usize>,
-        #[serde(alias = "crashType")]
+        #[serde(alias = "crashType", default)]
         pub crash_type: Option<Cow<'a, str>>,
         #[serde(borrow, default)]
         pub modules: Vec<Module<'a>>,
@@ -1192,19 +1192,21 @@ mod json {
 
     #[derive(Debug, Deserialize)]
     pub struct Module<'a> {
-        #[serde(alias = "baseAddress")]
+        #[serde(alias = "baseAddress", default)]
         pub base_address: Option<Cow<'a, str>>,
-        #[serde(alias = "endAddress")]
+        #[serde(alias = "endAddress", default)]
         #[allow(unused)]
         pub end_address: Option<Cow<'a, str>>,
+        #[serde(default)]
         pub filename: Option<Cow<'a, str>>,
-        #[serde(alias = "codeId")]
+        #[serde(alias = "codeId", default)]
         #[allow(unused)]
         pub code_id: Option<Cow<'a, str>>,
-        #[serde(alias = "debugFile")]
+        #[serde(alias = "debugFile", default)]
         pub debug_file: Option<Cow<'a, str>>,
-        #[serde(alias = "debugId")]
+        #[serde(alias = "debugId", default)]
         pub debug_id: Option<Cow<'a, str>>,
+        #[serde(default)]
         #[allow(unused)]
         pub version: Option<Cow<'a, str>>,
     }
@@ -1218,7 +1220,7 @@ mod json {
     #[derive(Debug, Deserialize)]
     pub struct Frame<'a> {
         pub ip: Cow<'a, str>,
-        #[serde(alias = "moduleIndex")]
+        #[serde(alias = "moduleIndex", default)]
         pub module_index: Option<usize>,
         #[allow(unused)]
         pub trust: Cow<'a, str>,
