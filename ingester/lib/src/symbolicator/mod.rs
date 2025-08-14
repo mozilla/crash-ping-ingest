@@ -296,7 +296,7 @@ impl Symbolicator {
 
             Ok(Symbolicated {
                 reason: stack_traces.crash_type.map(|s| s.into_owned()),
-                crashing_thread: stack_traces.crash_thread,
+                crashing_thread: only_crashing_thread.then_some(0).or(stack_traces.crash_thread),
                 threads,
             })
         })
