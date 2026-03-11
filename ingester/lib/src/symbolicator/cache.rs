@@ -159,7 +159,7 @@ impl<'a> Drop for WaitingForSpaceWaiter<'a> {
 }
 
 impl WaitingForSpace {
-    fn waiter(&self) -> WaitingForSpaceWaiter {
+    fn waiter(&self) -> WaitingForSpaceWaiter<'_> {
         WaitingForSpaceWaiter::new(self)
     }
 
