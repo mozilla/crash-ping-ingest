@@ -1,5 +1,5 @@
 # Build the ingester in a separate stage
-FROM rust:1.84-alpine AS builder
+FROM rust:1.93-alpine AS builder
 WORKDIR /workdir
 ENV CARGO_HOME=/workdir/.cargo
 # %include ingester
