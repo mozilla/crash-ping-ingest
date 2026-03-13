@@ -4,7 +4,7 @@ WORKDIR /workdir
 ENV CARGO_HOME=/workdir/.cargo
 # %include ingester
 COPY topsrcdir/ingester/ ./
-RUN apk update && apk add --no-cache gcc libressl-dev musl-dev pkgconfig
+RUN apk update && apk add --no-cache gcc libressl-dev libressl-static musl-dev pkgconfig
 RUN cargo build --release
 
 # Start the main image
