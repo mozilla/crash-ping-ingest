@@ -21,7 +21,7 @@ protobuf==6.33.5
 pyasn1==0.6.3
 pyasn1_modules==0.4.1
 python-dateutil==2.9.0.post0
-requests==2.32.4
+requests==2.33.0
 rsa==4.9
 siggen==2.2.20241029
 six==1.17.0
