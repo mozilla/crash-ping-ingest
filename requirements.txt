@@ -25,4 +25,4 @@ requests==2.33.0
 rsa==4.9
 siggen==2.2.20241029
 six==1.17.0
-urllib3==2.6.3
+urllib3==2.7.0
