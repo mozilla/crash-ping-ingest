@@ -6,54 +6,56 @@ from taskgraph.decision import taskgraph_decision
 from taskgraph.parameters import extend_parameters_schema, Parameters
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util.schema import Schema
-from voluptuous import Required, ALLOW_EXTRA
+from typing import Optional
 
 CI_INDEX_API = "https://firefox-ci-tc.services.mozilla.com/api/index/v1"
 
-TASK_SCHEMA = Schema({
+class DateTaskSchema(Schema):
+    # The number of days preceding the cron run date for which to generate tasks.
+    # Only applies when getting cron tasks.
+    cron_days: Optional[int] = None
+    # Whether to create a task for the manual processing action.
+    action_manual: Optional[bool] = None
+    # The index path to use, both to index the results and to avoid running
+    # a task when one has already run. The `{date}` string will be
+    # interpolated with the date, where `-`s will be replaced with `.`
+    # (e.g., 2025-01-02 will become `2025.01.02`).
+    index: Optional[str] = None
+    # An environment variable name which (if specified) will be set with the date.
+    env: Optional[str] = None
+
+class CronDateDependenciesSchema(Schema):
+    # The number of days preceding the cron run date for which to create
+    # dependencies. This should not exceed the number of days specified in
+    # the corresponding `date-task.cron-days`.
+    days: int
+    # The task name.
+    task: str
+    # Artifacts to fetch. They will end up in `fetches/cron-date-dependencies/{task}-N`.
+    artifacts: Optional[list[str]] = None
+
+class TaskSchema(Schema, forbid_unknown_fields=False):
     # If specified, the task will be duplicated to create date-specific tasks.
-    "date-tasks": {
-        # The number of days preceding the cron run date for which to generate tasks.
-        # Only applies when getting cron tasks.
-        "cron-days": int,
-        # Whether to create a task for the manual processing action.
-        "action-manual": bool,
-        # The index path to use, both to index the results and to avoid running
-        # a task when one has already run. The `{date}` string will be
-        # interpolated with the date, where `-`s will be replaced with `.`
-        # (e.g., 2025-01-02 will become `2025.01.02`).
-        "index": str,
-        # An environment variable name which (if specified) will be set with the date.
-        "env": str,
-    },
+    date_tasks: Optional[DateTaskSchema] = None
     # If specified, dependencies corresponding to `days` tasks created by
     # `date-task.cron-days` will be added to the task.
-    "cron-date-dependencies": [{
-        # The number of days preceding the cron run date for which to create
-        # dependencies. This should not exceed the number of days specified in
-        # the corresponding `date-task.cron-days`.
-        Required("days"): int,
-        # The task name.
-        Required("task"): str,
-        # Artifacts to fetch. They will end up in `fetches/cron-date-dependencies/{task}-N`.
-        "artifacts": [str],
-    }],
-}, extra=ALLOW_EXTRA)
+    cron_date_dependencies: Optional[list[CronDateDependenciesSchema]] = None
 
 PROCESS_PINGS_MANUAL_PARAM = "process_pings_manual"
 
-PARAMETERS_SCHEMA = {
-    PROCESS_PINGS_MANUAL_PARAM: {
-        Required("dates"): [str],
-        "index": bool,
-        "max_tasks": int,
-    }
-}
+class ParametersSchema(Schema, rename=None):
+    dates: list[str]
+    index: Optional[bool] = None
+    max_tasks: Optional[int] = None
+
+PARAMETERS_SCHEMA = Schema.from_dict({
+    PROCESS_PINGS_MANUAL_PARAM: Optional[ParametersSchema]
+})
 
 
 # Transforms logic
 transforms = TransformSequence()
-transforms.add_validate(TASK_SCHEMA)
+transforms.add_validate(TaskSchema)
 
 
 # Currently unused, however we'll keep it around in case we no longer want to

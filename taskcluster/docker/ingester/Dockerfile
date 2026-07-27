@@ -23,7 +23,8 @@ RUN apk update
 # Setup Python
 # %include requirements.txt
 COPY topsrcdir/requirements.txt /requirements.txt
-RUN apk add --no-cache python3 py3-pip && \
+# g++, linux-headers, and python3-dev needed to build grpcio wheel
+RUN apk add --no-cache g++ linux-headers python3 python3-dev py3-pip && \
     python3 -m pip install --no-cache --upgrade --break-system-packages pip setuptools && \
     python3 -m pip install --no-cache --break-system-packages -r /requirements.txt
 
