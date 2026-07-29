@@ -186,11 +186,13 @@ enum ExceptionValue<'a> {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct ExceptionFrame<'a> {
-    #[serde(rename(deserialize = "className"))]
+    #[serde(alias = "className")]
+    #[serde(alias = "class_name")]
     module: Option<Cow<'a, str>>,
-    #[serde(rename(deserialize = "methodName"))]
+    #[serde(alias = "methodName")]
+    #[serde(alias = "method_name")]
     function: Option<Cow<'a, str>>,
-    #[serde(rename(deserialize = "file"))]
+    #[serde(alias = "file")]
     filename: Option<Cow<'a, str>>,
 }
 
@@ -217,7 +219,7 @@ mod json {
 
     #[derive(Debug, Deserialize)]
     pub struct Throwable<'a> {
-        #[serde(rename(deserialize = "typeName"))]
+        #[serde(alias = "typeName")]
         pub type_name: Cow<'a, str>,
         #[serde(default, borrow)]
         pub stack: Vec<super::ExceptionFrame<'a>>,
