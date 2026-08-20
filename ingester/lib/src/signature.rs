@@ -48,6 +48,10 @@ impl Generator {
             ipc_channel_error: ping_info.ipc_channel_error.as_deref(),
             moz_crash_reason: ping_info.moz_crash_reason.as_deref(),
             os: ping_info.os.as_deref(),
+            async_shutdown_timeout: ping_info
+                .async_shutdown_timeout
+                .as_deref()
+                .map(fixup_async_shutdown_timeout),
         };
 
         let input = serde_json::to_string(&input)?;
@@ -108,6 +112,21 @@ struct Input<'a> {
     ipc_channel_error: Option<&'a str>,
     moz_crash_reason: Option<&'a str>,
     os: Option<&'a str>,
+    async_shutdown_timeout: Option<Cow<'a, str>>,
+}
+
+// AsyncShutdownTimeout has the `conditions` value serialized as a string, but it should be an
+// array.
+fn fixup_async_shutdown_timeout(s: &str) -> Cow<'_, str> {
+    (|| {
+        let mut value = serde_json::from_str::<serde_json::Value>(s).ok()?;
+        let conditions = value.get_mut("conditions")?;
+        let s = conditions.as_str()?;
+        *conditions = serde_json::from_str::<serde_json::Value>(s).ok()?;
+        Some(value.to_string())
+    })()
+    .map(Cow::Owned)
+    .unwrap_or(Cow::Borrowed(s))
 }
 
 #[derive(Debug, serde::Serialize)]

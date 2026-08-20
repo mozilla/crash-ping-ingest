@@ -194,6 +194,7 @@ pub struct InputRow {
     pub config_id: u64,
     pub stack_traces: Option<String>,
     pub java_exception: Option<String>,
+    pub async_shutdown_timeout: Option<String>,
     pub moz_crash_reason: Option<String>,
     pub ipc_channel_error: Option<String>,
     pub oom_size: Option<u64>,

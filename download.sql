@@ -51,8 +51,9 @@ create temp table pings as (
         -- Explicitly format the timestamp for maximum precision because these values will be round-tripped into the ingest output table and joined.
         -- Otherwise the default result string only has millisecond precision and doesn't join correctly.
         FORMAT_TIMESTAMP("%FT%R:%E*S", submission_timestamp) as submission_timestamp,
-        IF(metrics.object.crash_stack_traces is null, null, TO_JSON_STRING(metrics.object.crash_stack_traces)) as stack_traces,
-        IF(metrics.object.crash_java_exception is null, null, TO_JSON_STRING(metrics.object.crash_java_exception)) as java_exception,
+        NULLIF(TO_JSON_STRING(metrics.object.crash_stack_traces), 'null') as stack_traces,
+        NULLIF(TO_JSON_STRING(metrics.object.crash_java_exception), 'null') as java_exception,
+        NULLIF(TO_JSON_STRING(metrics.object.crash_async_shutdown_timeout), 'null') as async_shutdown_timeout,
         metrics.string.crash_moz_crash_reason as moz_crash_reason,
         metrics.string.crash_ipc_channel_error as ipc_channel_error,
         metrics.quantity.memory_oom_allocation_size as oom_size,
@@ -94,6 +95,7 @@ select distinct
     submission_timestamp,
     stack_traces,
     java_exception,
+    async_shutdown_timeout,
     moz_crash_reason,
     ipc_channel_error,
     oom_size,
