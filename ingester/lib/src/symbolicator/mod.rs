@@ -943,7 +943,7 @@ impl FileHelper {
 
         loop {
             match response.chunk().await {
-                Err(e) => anyhow::bail!("error getting response: {e}"),
+                Err(e) => anyhow::bail!("error getting response: {e:?}"),
                 Ok(Some(chunk)) => {
                     use tokio::io::AsyncWriteExt;
                     f.write_all(&chunk)
