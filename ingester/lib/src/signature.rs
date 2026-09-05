@@ -52,6 +52,8 @@ impl Generator {
                 .async_shutdown_timeout
                 .as_deref()
                 .map(fixup_async_shutdown_timeout),
+            hang: ping_info.hang.as_deref(),
+            js_large_allocation_failure: ping_info.js_large_allocation_failure.as_deref(),
         };
 
         let input = serde_json::to_string(&input)?;
@@ -113,6 +115,8 @@ struct Input<'a> {
     moz_crash_reason: Option<&'a str>,
     os: Option<&'a str>,
     async_shutdown_timeout: Option<Cow<'a, str>>,
+    hang: Option<&'a str>,
+    js_large_allocation_failure: Option<&'a str>,
 }
 
 // AsyncShutdownTimeout has the `conditions` value serialized as a string, but it should be an

@@ -181,7 +181,8 @@ where
 pub struct PingInfo {
     pub document_id: String,
     pub submission_timestamp: String,
-    pub config_id: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_id: Option<u64>,
     pub crash_type: Option<String>,
     pub signature: Option<String>,
     pub stack: Option<Vec<symbolicator::FrameInfo>>,
@@ -191,7 +192,8 @@ pub struct PingInfo {
 pub struct InputRow {
     pub document_id: String,
     pub submission_timestamp: String,
-    pub config_id: u64,
+    #[serde(default)]
+    pub config_id: Option<u64>,
     pub stack_traces: Option<String>,
     pub java_exception: Option<String>,
     pub async_shutdown_timeout: Option<String>,
@@ -200,4 +202,6 @@ pub struct InputRow {
     pub oom_size: Option<u64>,
     pub os: Option<String>,
     pub channel: Option<String>,
+    pub hang: Option<String>,
+    pub js_large_allocation_failure: Option<String>,
 }

@@ -57,6 +57,8 @@ create temp table pings as (
         metrics.string.crash_moz_crash_reason as moz_crash_reason,
         metrics.string.crash_ipc_channel_error as ipc_channel_error,
         metrics.quantity.memory_oom_allocation_size as oom_size,
+        metrics.string.crash_hang as hang,
+        metrics.string.memory_js_large_allocation_failure as js_large_allocation_failure,
         normalized_os as os,
         crash_app_channel as channel,
     from telemetry.firefox_crashes as data
@@ -99,6 +101,8 @@ select distinct
     moz_crash_reason,
     ipc_channel_error,
     oom_size,
+    hang,
+    js_large_allocation_failure,
     os,
     channel
 from pings
