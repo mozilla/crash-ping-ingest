@@ -60,3 +60,30 @@ tasks:
 
           # Upload to bigquery
           ./upload.py --production $CONFIG $OUTPUT
+  live-pings:
+    name: process-live-pings
+    description: "Process pings from live tables and upload to bigquery."
+    scopes:
+      - secrets:get:project/mozilla/crash-ping-ingest/ci
+    run-on-tasks-for:
+      - cron
+    run:
+      using: run-task
+      use-caches: [checkout, cargo, pip]
+      cwd: '{checkout}'
+      command:
+        - bash
+        - -euo
+        - pipefail
+        - -c
+        - |
+          SECRETS=$(curl http://taskcluster/secrets/v1/secret/project/mozilla/crash-ping-ingest/ci)
+          export GOOGLE_APPLICATION_CREDENTIALS=credentials.json
+          echo $SECRETS | jq -r .secret.google_application_credentials > $GOOGLE_APPLICATION_CREDENTIALS
+
+          export RUST_LOG=info
+
+          # Run the live processing. It will exit if we run out of sufficient
+          # data to process or if the timeout is reached.
+          ./process-live.py --production
+
