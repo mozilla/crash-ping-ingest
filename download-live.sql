@@ -4,7 +4,7 @@ declare min_version NUMERIC default latest_release_version - 3;
 
 -- Expire old log entries (in case jobs failed removing them).
 delete from crash_ping_ingest_external.live_ingest_log
-where time < CURRENT_TIMESTAMP() - INTERVAL 4 HOUR;
+where time < CURRENT_TIMESTAMP() - INTERVAL 1 HOUR;
 
 create temp table selected as (
     -- TODO use crash event ID to deduplicate
