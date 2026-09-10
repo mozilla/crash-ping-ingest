@@ -69,7 +69,7 @@ OUTPUT_TABLE_SCHEMA = [
 
 def process_pings(rows: bigquery.table.RowIterator) -> str | list[typing.Dict[str, typing.Any]]:
     input = "\n".join(json.dumps(dict(row)) for row in rows)
-    symbolicated = subprocess.run([INGESTER, "--no-progress", "keep_going=true"], text=True, input=input, capture_output=True)
+    symbolicated = subprocess.run([INGESTER, "--no-progress", "keep_going=true", "cache.size_limit_gb=50"], text=True, input=input, capture_output=True)
 
     if symbolicated.returncode != 0:
         return f"ingester returned {symbolicated.returncode}: {symbolicated.stderr}"
