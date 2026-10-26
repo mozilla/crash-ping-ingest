@@ -1,7 +1,7 @@
 attrs==24.3.0
 boltons==24.1.0
 cachetools==5.5.2
-certifi==2024.12.14
+certifi==2026.10.19
 charset-normalizer==3.4.1
 face==24.0.0
 glom==24.11.0
